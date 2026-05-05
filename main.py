@@ -61,8 +61,19 @@ def run_stage(stage_name, func):
     }
 
 def save_to_csv(data):
+    import os
+
+    file_exists = os.path.isfile("data/metrics.csv")
+
     with open("data/metrics.csv", "a", newline="") as f:
         writer = csv.writer(f)
+
+        # Write header once
+        if not file_exists:
+            writer.writerow([
+                "stage", "duration", "cpu", "memory", "energy", "carbon", "timestamp"
+            ])
+
         writer.writerow([
             data["stage"],
             data["duration"],
