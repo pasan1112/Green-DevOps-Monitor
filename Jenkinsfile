@@ -6,7 +6,7 @@ pipeline {
         APP_CONTAINER = "green-devops-sample-app"
         APP_PORT = "5052"
         RUN_ID = "${env.BUILD_TAG}"
-        ELECTRICITYMAPS_API_KEY = BpjVnaE4hWm9CE947xSP
+        ELECTRICITYMAPS_API_KEY = "BpjVnaE4hWm9CE947xSP"
     }
 
     stages {
