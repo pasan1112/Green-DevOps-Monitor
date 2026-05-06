@@ -10,15 +10,16 @@ pipeline {
     }
 
     stages {
+
         stage('Build') {
             steps {
                 sh '''
                 docker run --rm \
                 -e ELECTRICITYMAPS_API_KEY=$ELECTRICITYMAPS_API_KEY \
-                -v "$WORKSPACE":/app \
+                -v "$WORKSPACE:/app" \
                 -w /app \
                 python:3.12-slim \
-                bash -c "pip install -r requirements.txt && python monitor_runner.py --stage build --run-id $RUN_ID --cmd 'python -m pip install -r sample_app/requirements.txt'"
+                sh -c "pip install -r requirements.txt && python monitor_runner.py --stage build --run-id $RUN_ID --cmd 'python -m pip install -r sample_app/requirements.txt'"
                 '''
             }
         }
@@ -28,10 +29,10 @@ pipeline {
                 sh '''
                 docker run --rm \
                 -e ELECTRICITYMAPS_API_KEY=$ELECTRICITYMAPS_API_KEY \
-                -v "$WORKSPACE":/app \
+                -v "$WORKSPACE:/app" \
                 -w /app \
                 python:3.12-slim \
-                bash -c "pip install -r requirements.txt && python monitor_runner.py --stage test --run-id $RUN_ID --cmd 'pytest sample_app/tests'"
+                sh -c "pip install -r requirements.txt && python monitor_runner.py --stage test --run-id $RUN_ID --cmd 'pytest sample_app/tests'"
                 '''
             }
         }
@@ -39,12 +40,14 @@ pipeline {
         stage('Deploy') {
             steps {
                 sh '''
-                python3 -m pip install psutil requests pandas || true
+                docker rm -f $APP_CONTAINER || true
+
+                docker build -t $APP_IMAGE ./sample_app
 
                 python3 monitor_runner.py \
                 --stage deploy \
                 --run-id "$RUN_ID" \
-                --cmd "docker rm -f $APP_CONTAINER || true && docker build -t $APP_IMAGE ./sample_app && docker run -d --name $APP_CONTAINER -p $APP_PORT:5052 $APP_IMAGE"
+                --cmd "docker run -d --name $APP_CONTAINER -p $APP_PORT:5052 $APP_IMAGE"
                 '''
             }
         }
