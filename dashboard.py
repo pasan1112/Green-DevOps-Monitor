@@ -1,10 +1,9 @@
-from flask import Flask, render_template_string
+from flask import Flask, render_template_string, request
 import pandas as pd
 import os
 import json
 
 app = Flask(__name__)
-
 DATA_PATH = "data/metrics.csv"
 
 HTML = """
@@ -13,7 +12,7 @@ HTML = """
 <head>
     <title>Green DevOps Monitor</title>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-    <meta http-equiv="refresh" content="10">
+    <meta http-equiv="refresh" content="15">
     <style>
         * { box-sizing: border-box; }
 
@@ -27,15 +26,13 @@ HTML = """
             color: #e5e7eb;
         }
 
-        .page {
-            padding: 28px;
-        }
+        .page { padding: 28px; }
 
         .header {
             display: flex;
             justify-content: space-between;
             align-items: center;
-            margin-bottom: 26px;
+            margin-bottom: 24px;
         }
 
         .title h1 {
@@ -58,6 +55,12 @@ HTML = """
             font-size: 14px;
         }
 
+        .section-title {
+            margin: 26px 0 14px;
+            font-size: 20px;
+            color: #f8fafc;
+        }
+
         .cards {
             display: grid;
             grid-template-columns: repeat(4, 1fr);
@@ -75,24 +78,24 @@ HTML = """
 
         .card {
             padding: 20px;
-            min-height: 120px;
+            min-height: 118px;
         }
 
-        .card .label {
+        .label {
             color: #94a3b8;
             font-size: 13px;
             text-transform: uppercase;
             letter-spacing: 0.08em;
         }
 
-        .card .value {
+        .value {
             margin-top: 14px;
             font-size: 28px;
             font-weight: 800;
             color: #ffffff;
         }
 
-        .card .sub {
+        .sub {
             margin-top: 8px;
             font-size: 13px;
             color: #64748b;
@@ -103,6 +106,53 @@ HTML = """
         .amber { color: #f59e0b !important; }
         .red { color: #fb7185 !important; }
 
+        .layout {
+            display: grid;
+            grid-template-columns: 360px 1fr;
+            gap: 20px;
+            align-items: start;
+        }
+
+        .run-list {
+            padding: 18px;
+        }
+
+        .run-item {
+            display: block;
+            text-decoration: none;
+            color: #cbd5e1;
+            padding: 14px;
+            border-radius: 14px;
+            margin-bottom: 10px;
+            background: rgba(30, 41, 59, 0.65);
+            border: 1px solid rgba(148, 163, 184, 0.12);
+            transition: 0.2s ease;
+        }
+
+        .run-item:hover {
+            transform: translateY(-2px);
+            background: rgba(34, 197, 94, 0.10);
+            border-color: rgba(34, 197, 94, 0.35);
+        }
+
+        .run-item.active {
+            background: rgba(34, 197, 94, 0.18);
+            border-color: rgba(34, 197, 94, 0.55);
+        }
+
+        .run-id {
+            font-weight: 800;
+            color: #f8fafc;
+            font-size: 14px;
+        }
+
+        .run-meta {
+            margin-top: 8px;
+            font-size: 12px;
+            color: #94a3b8;
+            line-height: 1.5;
+        }
+
         .grid {
             display: grid;
             grid-template-columns: 1.15fr 0.85fr;
@@ -110,21 +160,19 @@ HTML = """
             margin-bottom: 20px;
         }
 
-        .panel {
-            padding: 20px;
-        }
-
-        .panel h2 {
-            margin: 0 0 16px;
-            font-size: 18px;
-            color: #f8fafc;
-        }
-
         .two-charts {
             display: grid;
             grid-template-columns: 1fr 1fr;
             gap: 18px;
             margin-bottom: 20px;
+        }
+
+        .panel { padding: 20px; }
+
+        .panel h2 {
+            margin: 0 0 16px;
+            font-size: 18px;
+            color: #f8fafc;
         }
 
         .insight {
@@ -162,13 +210,9 @@ HTML = """
             background: rgba(15, 23, 42, 0.9);
         }
 
-        td {
-            color: #cbd5e1;
-        }
+        td { color: #cbd5e1; }
 
-        tr:hover {
-            background: rgba(34, 197, 94, 0.06);
-        }
+        tr:hover { background: rgba(34, 197, 94, 0.06); }
 
         .footer {
             margin-top: 18px;
@@ -177,8 +221,8 @@ HTML = """
             text-align: right;
         }
 
-        @media (max-width: 1100px) {
-            .cards, .grid, .two-charts {
+        @media (max-width: 1200px) {
+            .cards, .grid, .two-charts, .layout {
                 grid-template-columns: 1fr;
             }
         }
@@ -191,99 +235,127 @@ HTML = """
     <div class="header">
         <div class="title">
             <h1>Green DevOps Sustainability Monitor</h1>
-            <p>Stage-level CI/CD energy and carbon intelligence from Jenkins pipeline executions.</p>
+            <p>Historical CI/CD pipeline runs with stage-level energy and carbon drilldown.</p>
         </div>
         <div class="badge">
-            Latest Run: {{ latest_run }}
+            Selected Run: {{ selected_run }}
         </div>
     </div>
 
-    <div class="cards">
-        <div class="card">
-            <div class="label">Total Energy</div>
-            <div class="value green">{{ total_energy }}</div>
-            <div class="sub">kWh across latest pipeline run</div>
+    <div class="layout">
+
+        <div class="panel run-list">
+            <h2>Pipeline Run History</h2>
+
+            {% for run in runs %}
+            <a class="run-item {% if run.run_id == selected_run %}active{% endif %}" href="/?run_id={{ run.run_id }}">
+                <div class="run-id">{{ run.run_id }}</div>
+                <div class="run-meta">
+                    Energy: {{ run.total_energy_kwh }} kWh<br>
+                    Carbon: {{ run.total_carbon_kg }} kgCO₂eq<br>
+                    Duration: {{ run.duration_seconds }}s<br>
+                    Status: {{ run.status }}
+                </div>
+            </a>
+            {% endfor %}
         </div>
 
-        <div class="card">
-            <div class="label">Active Compute Energy</div>
-            <div class="value cyan">{{ active_energy }}</div>
-            <div class="sub">CPU-driven workload energy</div>
-        </div>
+        <div>
 
-        <div class="card">
-            <div class="label">Total Carbon</div>
-            <div class="value amber">{{ total_carbon }}</div>
-            <div class="sub">kgCO₂eq estimated emissions</div>
-        </div>
+            <div class="cards">
+                <div class="card">
+                    <div class="label">Pipeline Energy</div>
+                    <div class="value green">{{ total_energy }}</div>
+                    <div class="sub">Total kWh for selected run</div>
+                </div>
 
-        <div class="card">
-            <div class="label">Carbon Intensity</div>
-            <div class="value red">{{ carbon_intensity }}</div>
-            <div class="sub">kgCO₂/kWh | Source: {{ carbon_source }}</div>
+                <div class="card">
+                    <div class="label">Active Energy</div>
+                    <div class="value cyan">{{ active_energy }}</div>
+                    <div class="sub">Workload-driven compute energy</div>
+                </div>
+
+                <div class="card">
+                    <div class="label">Pipeline Carbon</div>
+                    <div class="value amber">{{ total_carbon }}</div>
+                    <div class="sub">kgCO₂eq for selected run</div>
+                </div>
+
+                <div class="card">
+                    <div class="label">Carbon Intensity</div>
+                    <div class="value red">{{ carbon_intensity }}</div>
+                    <div class="sub">kgCO₂/kWh | {{ carbon_source }}</div>
+                </div>
+            </div>
+
+            <div class="insight">
+                <h3>Pipeline-Level Insight</h3>
+                <p>{{ pipeline_insight }}</p>
+            </div>
+
+            <div class="insight">
+                <h3>Stage-Level Insight</h3>
+                <p>{{ stage_insight }}</p>
+            </div>
+
+            <div class="grid">
+                <div class="panel">
+                    <h2>Total vs Active Energy by Stage</h2>
+                    <canvas id="energyChart"></canvas>
+                </div>
+
+                <div class="panel">
+                    <h2>Average CPU Usage by Stage</h2>
+                    <canvas id="cpuChart"></canvas>
+                </div>
+            </div>
+
+            <div class="two-charts">
+                <div class="panel">
+                    <h2>Total Carbon by Stage</h2>
+                    <canvas id="carbonChart"></canvas>
+                </div>
+
+                <div class="panel">
+                    <h2>Stage Duration</h2>
+                    <canvas id="durationChart"></canvas>
+                </div>
+            </div>
+
+            <table>
+                <thead>
+                    <tr>
+                        <th>Stage</th>
+                        <th>Status</th>
+                        <th>Duration (s)</th>
+                        <th>Avg CPU %</th>
+                        <th>Total Energy</th>
+                        <th>Active Energy</th>
+                        <th>Total Carbon</th>
+                        <th>Active Carbon</th>
+                    </tr>
+                </thead>
+                <tbody>
+                {% for row in rows %}
+                    <tr>
+                        <td>{{ row.stage }}</td>
+                        <td>{{ row.status }}</td>
+                        <td>{{ row.duration_seconds }}</td>
+                        <td>{{ row.avg_cpu_percent }}</td>
+                        <td>{{ row.total_energy_kwh }}</td>
+                        <td>{{ row.active_energy_kwh }}</td>
+                        <td>{{ row.total_carbon_kg }}</td>
+                        <td>{{ row.active_carbon_kg }}</td>
+                    </tr>
+                {% endfor %}
+                </tbody>
+            </table>
+
         </div>
     </div>
-
-    <div class="insight">
-        <h3>Automated Sustainability Insight</h3>
-        <p>{{ insight }}</p>
-    </div>
-
-    <div class="grid">
-        <div class="panel">
-            <h2>Total vs Active Energy by Stage</h2>
-            <canvas id="energyChart"></canvas>
-        </div>
-
-        <div class="panel">
-            <h2>Average CPU Usage by Stage</h2>
-            <canvas id="cpuChart"></canvas>
-        </div>
-    </div>
-
-    <div class="two-charts">
-        <div class="panel">
-            <h2>Total Carbon by Stage</h2>
-            <canvas id="carbonChart"></canvas>
-        </div>
-
-        <div class="panel">
-            <h2>Stage Duration</h2>
-            <canvas id="durationChart"></canvas>
-        </div>
-    </div>
-
-    <table>
-        <thead>
-            <tr>
-                <th>Stage</th>
-                <th>Status</th>
-                <th>Duration (s)</th>
-                <th>Avg CPU %</th>
-                <th>Total Energy</th>
-                <th>Active Energy</th>
-                <th>Total Carbon</th>
-                <th>Active Carbon</th>
-            </tr>
-        </thead>
-        <tbody>
-        {% for row in rows %}
-            <tr>
-                <td>{{ row.stage }}</td>
-                <td>{{ row.status }}</td>
-                <td>{{ row.duration_seconds }}</td>
-                <td>{{ row.avg_cpu_percent }}</td>
-                <td>{{ row.total_energy_kwh }}</td>
-                <td>{{ row.active_energy_kwh }}</td>
-                <td>{{ row.total_carbon_kg }}</td>
-                <td>{{ row.active_carbon_kg }}</td>
-            </tr>
-        {% endfor %}
-        </tbody>
-    </table>
 
     <div class="footer">
-        Auto-refreshes every 10 seconds | Data source: data/metrics.csv
+        Auto-refreshes every 15 seconds | Data source: data/metrics.csv
     </div>
 
 </div>
@@ -363,8 +435,7 @@ new Chart(document.getElementById("carbonChart"), {
             backgroundColor: [
                 "rgba(34, 197, 94, 0.8)",
                 "rgba(59, 130, 246, 0.8)",
-                "rgba(244, 63, 94, 0.8)",
-                "rgba(245, 158, 11, 0.8)"
+                "rgba(244, 63, 94, 0.8)"
             ],
             borderColor: "#020617"
         }]
@@ -424,8 +495,28 @@ def dashboard():
     for col in numeric_cols:
         df[col] = pd.to_numeric(df[col], errors="coerce")
 
-    latest_run = df["run_id"].iloc[-1]
-    latest = df[df["run_id"] == latest_run].copy()
+    run_summary = (
+        df.groupby("run_id")
+        .agg(
+            total_energy_kwh=("total_energy_kwh", "sum"),
+            active_energy_kwh=("active_energy_kwh", "sum"),
+            total_carbon_kg=("total_carbon_kg", "sum"),
+            duration_seconds=("duration_seconds", "sum"),
+            status=("status", lambda x: "failed" if "failed" in list(x) else "success"),
+            latest_time=("end_timestamp", "max")
+        )
+        .reset_index()
+        .sort_values("latest_time", ascending=False)
+    )
+
+    run_summary["total_energy_kwh"] = run_summary["total_energy_kwh"].round(10)
+    run_summary["total_carbon_kg"] = run_summary["total_carbon_kg"].round(10)
+    run_summary["duration_seconds"] = run_summary["duration_seconds"].round(4)
+
+    requested_run = request.args.get("run_id")
+    selected_run = requested_run if requested_run in run_summary["run_id"].values else run_summary.iloc[0]["run_id"]
+
+    latest = df[df["run_id"] == selected_run].copy()
 
     stage_order = ["build", "test", "deploy"]
     latest["stage"] = pd.Categorical(latest["stage"], categories=stage_order, ordered=True)
@@ -442,22 +533,27 @@ def dashboard():
     highest_active_stage = summary.sort_values("active_energy_kwh", ascending=False).iloc[0]["stage"]
     highest_total_stage = summary.sort_values("total_energy_kwh", ascending=False).iloc[0]["stage"]
 
-    insight = (
-        f"The {highest_active_stage} stage has the highest active compute energy, "
-        f"indicating the greatest workload-driven resource demand. "
-        f"The {highest_total_stage} stage has the highest total energy, which includes baseline server power during execution time. "
-        f"This separation helps identify both compute-heavy stages and duration-driven energy cost."
+    pipeline_insight = (
+        f"Pipeline run {selected_run} consumed {total_energy} kWh total energy and emitted "
+        f"{total_carbon} kgCO₂eq based on the selected carbon intensity source."
+    )
+
+    stage_insight = (
+        f"The {highest_active_stage} stage has the highest active compute energy, showing the greatest workload-driven demand. "
+        f"The {highest_total_stage} stage has the highest total energy, which also includes baseline server power during execution."
     )
 
     return render_template_string(
         HTML,
-        latest_run=latest_run,
+        selected_run=selected_run,
+        runs=run_summary.to_dict(orient="records"),
         total_energy=total_energy,
         active_energy=active_energy,
         total_carbon=total_carbon,
         carbon_intensity=carbon_intensity,
         carbon_source=carbon_source,
-        insight=insight,
+        pipeline_insight=pipeline_insight,
+        stage_insight=stage_insight,
         rows=latest.to_dict(orient="records"),
         stages=json.dumps(summary["stage"].astype(str).tolist()),
         total_energy_values=json.dumps(summary["total_energy_kwh"].round(10).tolist()),
