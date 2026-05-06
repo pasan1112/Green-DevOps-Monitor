@@ -7,6 +7,7 @@ pipeline {
         APP_PORT = "5052"
         RUN_ID = "${env.BUILD_TAG}"
         ELECTRICITYMAPS_API_KEY = "BpjVnaE4hWm9CE947xSP"
+        MONGO_URI = "mongodb+srv://admin:irindu%40mongo1112@green-devops-monitor.xxflzzs.mongodb.net/?appName=Green-DevOps-Monitor"
     }
 
     stages {
@@ -17,6 +18,7 @@ pipeline {
                 docker run --rm \
                 --volumes-from jenkins \
                 -e ELECTRICITYMAPS_API_KEY=$ELECTRICITYMAPS_API_KEY \
+                -e MONGO_URI=$MONGO_URI \
                 -w "$WORKSPACE" \
                 python:3.12-slim \
                 sh -c "pip install -r requirements.txt && python monitor_runner.py --stage build --run-id $RUN_ID --cmd 'python -m pip install -r sample_app/requirements.txt'"
@@ -30,7 +32,7 @@ pipeline {
                 docker run --rm \
                 --volumes-from jenkins \
                 -e ELECTRICITYMAPS_API_KEY=$ELECTRICITYMAPS_API_KEY \
-                -w "$WORKSPACE" \
+                -e MONGO_URI=$MONGO_URI \-w "$WORKSPACE" \
                 python:3.12-slim \
                 sh -c "pip install -r requirements.txt && python monitor_runner.py --stage test --run-id $RUN_ID --cmd 'pytest sample_app/tests'"
                 '''
@@ -48,7 +50,7 @@ pipeline {
                 -v /var/run/docker.sock:/var/run/docker.sock \
                 -v /usr/bin/docker:/usr/bin/docker \
                 -e ELECTRICITYMAPS_API_KEY=$ELECTRICITYMAPS_API_KEY \
-                -w "$WORKSPACE" \
+                -e MONGO_URI=$MONGO_URI \-w "$WORKSPACE" \
                 python:3.12-slim \
                 sh -c "pip install -r requirements.txt && python monitor_runner.py --stage deploy --run-id $RUN_ID --cmd 'docker run -d --name $APP_CONTAINER -p $APP_PORT:5052 $APP_IMAGE'"
                 '''

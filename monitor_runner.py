@@ -5,6 +5,7 @@ import subprocess
 import threading
 import time
 from datetime import datetime
+from storage.mongo_store import save_to_mongo
 
 import psutil
 
@@ -110,6 +111,7 @@ def run_monitored_stage(stage_name, command, pipeline_name, run_id, zone):
     }
 
     save_to_csv(record)
+    save_to_mongo(record.copy())
 
     print("\nStage monitoring complete")
     print(f"Stage: {stage_name}")
