@@ -2,9 +2,37 @@ from flask import Flask, render_template_string, request
 import pandas as pd
 import os
 import json
+from pymongo import MongoClient
 
 app = Flask(__name__)
-DATA_PATH = "data/metrics.csv"
+
+MONGO_DB_NAME = "green_devops_monitor"
+MONGO_COLLECTION_NAME = "pipeline_metrics"
+CSV_FALLBACK_PATH = "data/metrics.csv"
+
+
+def load_metrics():
+    mongo_uri = os.getenv("MONGO_URI")
+
+    if mongo_uri:
+        try:
+            client = MongoClient(mongo_uri, serverSelectionTimeoutMS=5000)
+            db = client[MONGO_DB_NAME]
+            collection = db[MONGO_COLLECTION_NAME]
+
+            records = list(collection.find({}, {"_id": 0}))
+            client.close()
+
+            if records:
+                return pd.DataFrame(records), "MongoDB Atlas"
+        except Exception as e:
+            print(f"MongoDB read failed. Falling back to CSV. Error: {e}")
+
+    if os.path.exists(CSV_FALLBACK_PATH):
+        return pd.read_csv(CSV_FALLBACK_PATH), "CSV fallback"
+
+    return pd.DataFrame(), "No data source"
+
 
 HTML = """
 <!DOCTYPE html>
@@ -53,12 +81,13 @@ HTML = """
             padding: 10px 14px;
             border-radius: 999px;
             font-size: 14px;
+            margin-left: 10px;
         }
 
-        .section-title {
-            margin: 26px 0 14px;
-            font-size: 20px;
-            color: #f8fafc;
+        .badge-row {
+            display: flex;
+            flex-wrap: wrap;
+            justify-content: flex-end;
         }
 
         .cards {
@@ -105,16 +134,24 @@ HTML = """
         .cyan { color: #38bdf8 !important; }
         .amber { color: #f59e0b !important; }
         .red { color: #fb7185 !important; }
+        .purple { color: #c084fc !important; }
 
         .layout {
             display: grid;
-            grid-template-columns: 360px 1fr;
+            grid-template-columns: 380px 1fr;
             gap: 20px;
             align-items: start;
         }
 
         .run-list {
             padding: 18px;
+            max-height: calc(100vh - 120px);
+            overflow-y: auto;
+        }
+
+        .run-list h2 {
+            margin-top: 0;
+            font-size: 18px;
         }
 
         .run-item {
@@ -144,6 +181,7 @@ HTML = """
             font-weight: 800;
             color: #f8fafc;
             font-size: 14px;
+            word-break: break-word;
         }
 
         .run-meta {
@@ -151,6 +189,27 @@ HTML = """
             font-size: 12px;
             color: #94a3b8;
             line-height: 1.5;
+        }
+
+        .status-pill {
+            display: inline-block;
+            margin-top: 8px;
+            padding: 4px 9px;
+            border-radius: 999px;
+            font-size: 11px;
+            font-weight: 700;
+        }
+
+        .status-success {
+            color: #86efac;
+            background: rgba(34, 197, 94, 0.14);
+            border: 1px solid rgba(34, 197, 94, 0.35);
+        }
+
+        .status-failed {
+            color: #fda4af;
+            background: rgba(244, 63, 94, 0.14);
+            border: 1px solid rgba(244, 63, 94, 0.35);
         }
 
         .grid {
@@ -225,6 +284,10 @@ HTML = """
             .cards, .grid, .two-charts, .layout {
                 grid-template-columns: 1fr;
             }
+
+            .run-list {
+                max-height: none;
+            }
         }
     </style>
 </head>
@@ -235,10 +298,11 @@ HTML = """
     <div class="header">
         <div class="title">
             <h1>Green DevOps Sustainability Monitor</h1>
-            <p>Historical CI/CD pipeline runs with stage-level energy and carbon drilldown.</p>
+            <p>Live MongoDB-backed CI/CD pipeline sustainability analytics with stage-level drilldown.</p>
         </div>
-        <div class="badge">
-            Selected Run: {{ selected_run }}
+        <div class="badge-row">
+            <div class="badge">Selected Run: {{ selected_run }}</div>
+            <div class="badge">Source: {{ data_source }}</div>
         </div>
     </div>
 
@@ -254,8 +318,11 @@ HTML = """
                     Energy: {{ run.total_energy_kwh }} kWh<br>
                     Carbon: {{ run.total_carbon_kg }} kgCO₂eq<br>
                     Duration: {{ run.duration_seconds }}s<br>
-                    Status: {{ run.status }}
+                    Completed: {{ run.latest_time }}
                 </div>
+                <span class="status-pill {% if run.status == 'success' %}status-success{% else %}status-failed{% endif %}">
+                    {{ run.status }}
+                </span>
             </a>
             {% endfor %}
         </div>
@@ -285,6 +352,32 @@ HTML = """
                     <div class="label">Carbon Intensity</div>
                     <div class="value red">{{ carbon_intensity }}</div>
                     <div class="sub">kgCO₂/kWh | {{ carbon_source }}</div>
+                </div>
+            </div>
+
+            <div class="cards">
+                <div class="card">
+                    <div class="label">Pipeline Duration</div>
+                    <div class="value purple">{{ pipeline_duration }}</div>
+                    <div class="sub">Total measured stage seconds</div>
+                </div>
+
+                <div class="card">
+                    <div class="label">Stages Captured</div>
+                    <div class="value green">{{ stage_count }}</div>
+                    <div class="sub">Build / Test / Deploy records</div>
+                </div>
+
+                <div class="card">
+                    <div class="label">Highest Active Stage</div>
+                    <div class="value cyan">{{ highest_active_stage }}</div>
+                    <div class="sub">Most workload-driven stage</div>
+                </div>
+
+                <div class="card">
+                    <div class="label">Highest Total Stage</div>
+                    <div class="value amber">{{ highest_total_stage }}</div>
+                    <div class="sub">Largest total energy stage</div>
                 </div>
             </div>
 
@@ -329,6 +422,7 @@ HTML = """
                         <th>Status</th>
                         <th>Duration (s)</th>
                         <th>Avg CPU %</th>
+                        <th>Peak CPU %</th>
                         <th>Total Energy</th>
                         <th>Active Energy</th>
                         <th>Total Carbon</th>
@@ -342,6 +436,7 @@ HTML = """
                         <td>{{ row.status }}</td>
                         <td>{{ row.duration_seconds }}</td>
                         <td>{{ row.avg_cpu_percent }}</td>
+                        <td>{{ row.peak_cpu_percent }}</td>
                         <td>{{ row.total_energy_kwh }}</td>
                         <td>{{ row.active_energy_kwh }}</td>
                         <td>{{ row.total_carbon_kg }}</td>
@@ -355,7 +450,7 @@ HTML = """
     </div>
 
     <div class="footer">
-        Auto-refreshes every 15 seconds | Data source: data/metrics.csv
+        Auto-refreshes every 15 seconds | MongoDB primary with CSV fallback
     </div>
 
 </div>
@@ -474,17 +569,20 @@ new Chart(document.getElementById("durationChart"), {
 
 @app.route("/")
 def dashboard():
-    if not os.path.exists(DATA_PATH):
-        return "<h2>No monitoring data found. Run Jenkins pipeline first.</h2>"
-
-    df = pd.read_csv(DATA_PATH)
+    df, data_source = load_metrics()
 
     if df.empty:
-        return "<h2>Metrics file is empty. Run Jenkins pipeline first.</h2>"
+        return "<h2>No monitoring data found. Run Jenkins pipeline first or check MongoDB connection.</h2>"
+
+    required_cols = ["run_id", "stage"]
+    for col in required_cols:
+        if col not in df.columns:
+            return f"<h2>Missing required column: {col}</h2>"
 
     numeric_cols = [
         "duration_seconds",
         "avg_cpu_percent",
+        "peak_cpu_percent",
         "total_energy_kwh",
         "active_energy_kwh",
         "total_carbon_kg",
@@ -493,7 +591,18 @@ def dashboard():
     ]
 
     for col in numeric_cols:
-        df[col] = pd.to_numeric(df[col], errors="coerce")
+        if col not in df.columns:
+            df[col] = 0
+        df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0)
+
+    if "status" not in df.columns:
+        df["status"] = "unknown"
+
+    if "end_timestamp" not in df.columns:
+        df["end_timestamp"] = ""
+
+    if "carbon_source" not in df.columns:
+        df["carbon_source"] = "unknown"
 
     run_summary = (
         df.groupby("run_id")
@@ -510,6 +619,7 @@ def dashboard():
     )
 
     run_summary["total_energy_kwh"] = run_summary["total_energy_kwh"].round(10)
+    run_summary["active_energy_kwh"] = run_summary["active_energy_kwh"].round(10)
     run_summary["total_carbon_kg"] = run_summary["total_carbon_kg"].round(10)
     run_summary["duration_seconds"] = run_summary["duration_seconds"].round(4)
 
@@ -529,32 +639,44 @@ def dashboard():
     total_carbon = round(latest["total_carbon_kg"].sum(), 10)
     carbon_intensity = round(latest["carbon_intensity_kg_per_kwh"].mean(), 6)
     carbon_source = latest["carbon_source"].iloc[-1]
+    pipeline_duration = round(latest["duration_seconds"].sum(), 4)
+    stage_count = len(latest)
 
     highest_active_stage = summary.sort_values("active_energy_kwh", ascending=False).iloc[0]["stage"]
     highest_total_stage = summary.sort_values("total_energy_kwh", ascending=False).iloc[0]["stage"]
 
     pipeline_insight = (
         f"Pipeline run {selected_run} consumed {total_energy} kWh total energy and emitted "
-        f"{total_carbon} kgCO₂eq based on the selected carbon intensity source."
+        f"{total_carbon} kgCO₂eq. These values are calculated from monitored execution metrics "
+        f"and carbon intensity data from {carbon_source}."
     )
 
     stage_insight = (
         f"The {highest_active_stage} stage has the highest active compute energy, showing the greatest workload-driven demand. "
-        f"The {highest_total_stage} stage has the highest total energy, which also includes baseline server power during execution."
+        f"The {highest_total_stage} stage has the highest total energy, which includes baseline server power during execution."
     )
+
+    display_rows = latest.copy()
+    for col in numeric_cols:
+        display_rows[col] = display_rows[col].round(10)
 
     return render_template_string(
         HTML,
         selected_run=selected_run,
+        data_source=data_source,
         runs=run_summary.to_dict(orient="records"),
         total_energy=total_energy,
         active_energy=active_energy,
         total_carbon=total_carbon,
         carbon_intensity=carbon_intensity,
         carbon_source=carbon_source,
+        pipeline_duration=pipeline_duration,
+        stage_count=stage_count,
+        highest_active_stage=highest_active_stage,
+        highest_total_stage=highest_total_stage,
         pipeline_insight=pipeline_insight,
         stage_insight=stage_insight,
-        rows=latest.to_dict(orient="records"),
+        rows=display_rows.to_dict(orient="records"),
         stages=json.dumps(summary["stage"].astype(str).tolist()),
         total_energy_values=json.dumps(summary["total_energy_kwh"].round(10).tolist()),
         active_energy_values=json.dumps(summary["active_energy_kwh"].round(10).tolist()),
