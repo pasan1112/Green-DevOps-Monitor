@@ -10,8 +10,10 @@ MONGO_DB_NAME = "green_devops_monitor"
 MONGO_COLLECTION_NAME = "pipeline_metrics"
 CSV_FALLBACK_PATH = "data/metrics.csv"
 
+
 def load_metrics():
     mongo_uri = os.getenv("MONGO_URI")
+
     if mongo_uri:
         try:
             client = MongoClient(mongo_uri, serverSelectionTimeoutMS=5000)
@@ -19,8 +21,10 @@ def load_metrics():
             collection = db[MONGO_COLLECTION_NAME]
             records = list(collection.find({}, {"_id": 0}))
             client.close()
+
             if records:
                 return pd.DataFrame(records), "MongoDB Atlas"
+
         except Exception as e:
             print(f"MongoDB read failed. Falling back to CSV. Error: {e}")
 
@@ -29,7 +33,9 @@ def load_metrics():
             return pd.read_csv(CSV_FALLBACK_PATH), "CSV fallback"
         except Exception:
             pass
+
     return pd.DataFrame(), "No data source"
+
 
 HTML = """
 <!DOCTYPE html>
@@ -42,9 +48,10 @@ HTML = """
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script src="https://unpkg.com/lucide@latest"></script>
     <meta http-equiv="refresh" content="15">
+
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&display=swap');
-        
+
         :root {
             --glass: rgba(15, 23, 42, 0.65);
             --border: rgba(255, 255, 255, 0.08);
@@ -53,7 +60,7 @@ HTML = """
         body {
             font-family: 'Plus Jakarta Sans', sans-serif;
             background: #020617;
-            background-image: 
+            background-image:
                 radial-gradient(at 0% 0%, rgba(16, 185, 129, 0.1) 0px, transparent 50%),
                 radial-gradient(at 100% 0%, rgba(59, 130, 246, 0.1) 0px, transparent 50%);
             color: #f1f5f9;
@@ -81,32 +88,39 @@ HTML = """
             box-shadow: 0 0 0 rgba(34, 197, 94, 0.4);
             animation: pulse 2s infinite;
         }
+
         @keyframes pulse {
             0% { box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.7); }
             70% { box-shadow: 0 0 0 10px rgba(34, 197, 94, 0); }
             100% { box-shadow: 0 0 0 0 rgba(34, 197, 94, 0); }
         }
-        
+
         .nav-item-active {
             background: rgba(16, 185, 129, 0.15);
             border-color: rgba(16, 185, 129, 0.4) !important;
         }
     </style>
 </head>
+
 <body class="p-4 md:p-8">
     <div class="max-w-[1600px] mx-auto">
-        <!-- Header -->
+
         <header class="flex flex-col md:flex-row justify-between items-start md:items-center mb-8 gap-4">
             <div>
                 <div class="flex items-center gap-3">
                     <div class="p-2 bg-emerald-500/20 rounded-lg">
                         <i data-lucide="leaf" class="text-emerald-400 w-8 h-8"></i>
                     </div>
-                    <h1 class="text-3xl font-extrabold tracking-tight text-white">Green DevOps <span class="text-emerald-400">Monitor</span></h1>
+                    <h1 class="text-3xl font-extrabold tracking-tight text-white">
+                        Green DevOps <span class="text-emerald-400">Monitor</span>
+                    </h1>
                 </div>
-                <p class="text-slate-400 mt-1 font-medium">Real-time CI/CD sustainability & performance analytics</p>
+                <p class="text-slate-400 mt-1 font-medium">
+                    CI/CD sustainability, carbon, and pipeline efficiency analytics
+                </p>
             </div>
-            <div class="flex gap-2">
+
+            <div class="flex gap-2 flex-wrap">
                 <div class="glass-panel px-4 py-2 flex items-center gap-2 border-emerald-500/20">
                     <span class="status-pulse bg-emerald-500"></span>
                     <span class="text-sm font-semibold text-emerald-100">{{ data_source }}</span>
@@ -119,26 +133,29 @@ HTML = """
         </header>
 
         <div class="grid grid-cols-1 lg:grid-cols-12 gap-6">
-            <!-- Sidebar Navigation -->
+
             <aside class="lg:col-span-3 flex flex-col gap-4 max-h-[85vh]">
                 <div class="glass-panel p-4 flex-1 flex flex-col overflow-hidden">
                     <div class="flex items-center justify-between mb-4 px-2">
                         <h2 class="text-xs font-bold uppercase tracking-widest text-slate-500">Run History</h2>
                         <i data-lucide="history" class="w-4 h-4 text-slate-500"></i>
                     </div>
+
                     <div class="sidebar-scroll overflow-y-auto space-y-2 pr-2">
                         {% for run in runs %}
-                        <a href="/?run_id={{ run.run_id }}" 
+                        <a href="/?run_id={{ run.run_id }}"
                            class="block p-3 rounded-xl border border-transparent transition-all hover:border-white/10 hover:bg-white/5 {% if run.run_id == selected_run %}nav-item-active{% endif %}">
+
                             <div class="flex justify-between items-start mb-2">
                                 <span class="text-sm font-bold text-slate-200 truncate w-2/3">#{{ run.run_id }}</span>
                                 <span class="text-[10px] px-2 py-0.5 rounded-full font-bold uppercase tracking-tighter {% if run.status == 'success' %}bg-emerald-500/20 text-emerald-400 border border-emerald-500/30{% else %}bg-rose-500/20 text-rose-400 border border-rose-500/30{% endif %}">
                                     {{ run.status }}
                                 </span>
                             </div>
+
                             <div class="grid grid-cols-2 gap-2 text-[11px] text-slate-400 font-medium">
-                                <span class="flex items-center gap-1"><i data-lucide="zap" class="w-3 h-3"></i> {{ run.total_energy_kwh | round(4) }} kWh</span>
-                                <span class="flex items-center gap-1"><i data-lucide="clock" class="w-3 h-3"></i> {{ run.duration_seconds | int }}s</span>
+                                <span class="flex items-center gap-1"><i data-lucide="zap" class="w-3 h-3"></i> {{ run.total_energy_kwh | round(6) }} kWh</span>
+                                <span class="flex items-center gap-1"><i data-lucide="clock" class="w-3 h-3"></i> {{ run.duration_seconds | round(2) }}s</span>
                             </div>
                         </a>
                         {% endfor %}
@@ -146,10 +163,8 @@ HTML = """
                 </div>
             </aside>
 
-            <!-- Main Content -->
             <main class="lg:col-span-9 space-y-6">
-                
-                <!-- KPI Section -->
+
                 <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
                     <div class="glass-panel p-5 relative overflow-hidden group">
                         <div class="absolute -right-2 -bottom-2 opacity-5 transition-transform group-hover:scale-110">
@@ -157,7 +172,7 @@ HTML = """
                         </div>
                         <p class="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Total Energy</p>
                         <p class="text-3xl font-black text-emerald-400">{{ total_energy }} <span class="text-sm font-normal text-slate-500">kWh</span></p>
-                        <p class="text-[10px] text-slate-500 mt-2 font-medium">Stage accumulation for this run</p>
+                        <p class="text-[10px] text-slate-500 mt-2 font-medium">Total infrastructure energy estimate</p>
                     </div>
 
                     <div class="glass-panel p-5 relative overflow-hidden group">
@@ -166,7 +181,7 @@ HTML = """
                         </div>
                         <p class="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Carbon Footprint</p>
                         <p class="text-3xl font-black text-sky-400">{{ total_carbon }} <span class="text-sm font-normal text-slate-500">kgCO₂</span></p>
-                        <p class="text-[10px] text-slate-500 mt-2 font-medium">Based on local grid intensity</p>
+                        <p class="text-[10px] text-slate-500 mt-2 font-medium">Based on regional grid intensity</p>
                     </div>
 
                     <div class="glass-panel p-5 relative overflow-hidden group">
@@ -174,7 +189,7 @@ HTML = """
                             <i data-lucide="activity" class="w-24 h-24 text-amber-400"></i>
                         </div>
                         <p class="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Avg CPU Load</p>
-                        <p class="text-3xl font-black text-amber-400">{{ (cpu_values_raw | sum / cpu_values_raw | length) | round(2) if cpu_values_raw else 0 }} <span class="text-sm font-normal text-slate-500">%</span></p>
+                        <p class="text-3xl font-black text-amber-400">{{ avg_cpu }} <span class="text-sm font-normal text-slate-500">%</span></p>
                         <p class="text-[10px] text-slate-500 mt-2 font-medium">Mean utilization across stages</p>
                     </div>
 
@@ -184,11 +199,30 @@ HTML = """
                         </div>
                         <p class="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Total Duration</p>
                         <p class="text-3xl font-black text-purple-400">{{ pipeline_duration }} <span class="text-sm font-normal text-slate-500">s</span></p>
-                        <p class="text-[10px] text-slate-500 mt-2 font-medium">Wall-clock execution time</p>
+                        <p class="text-[10px] text-slate-500 mt-2 font-medium">Measured monitored-stage runtime</p>
                     </div>
                 </div>
 
-                <!-- Insights Row -->
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <div class="glass-panel p-5">
+                        <p class="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Phone Charge Equivalent</p>
+                        <p class="text-2xl font-black text-emerald-300">{{ phone_charges }}</p>
+                        <p class="text-xs text-slate-500 mt-2">Approx. smartphone charges</p>
+                    </div>
+
+                    <div class="glass-panel p-5">
+                        <p class="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">LED Bulb Equivalent</p>
+                        <p class="text-2xl font-black text-amber-300">{{ led_hours }}h</p>
+                        <p class="text-xs text-slate-500 mt-2">Approx. 10W LED bulb runtime</p>
+                    </div>
+
+                    <div class="glass-panel p-5">
+                        <p class="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Driving Equivalent</p>
+                        <p class="text-2xl font-black text-sky-300">{{ car_meters }}m</p>
+                        <p class="text-xs text-slate-500 mt-2">Approx. average petrol car distance</p>
+                    </div>
+                </div>
+
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div class="bg-emerald-500/5 border border-emerald-500/20 rounded-2xl p-5 flex gap-4">
                         <div class="mt-1"><i data-lucide="info" class="w-5 h-5 text-emerald-400"></i></div>
@@ -197,6 +231,7 @@ HTML = """
                             <p class="text-xs text-emerald-100/70 leading-relaxed">{{ pipeline_insight }}</p>
                         </div>
                     </div>
+
                     <div class="bg-sky-500/5 border border-sky-500/20 rounded-2xl p-5 flex gap-4">
                         <div class="mt-1"><i data-lucide="bar-chart-3" class="w-5 h-5 text-sky-400"></i></div>
                         <div>
@@ -206,7 +241,6 @@ HTML = """
                     </div>
                 </div>
 
-                <!-- Charts Section -->
                 <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
                     <div class="glass-panel p-6">
                         <div class="flex items-center justify-between mb-6">
@@ -217,6 +251,7 @@ HTML = """
                             <canvas id="energyChart"></canvas>
                         </div>
                     </div>
+
                     <div class="glass-panel p-6">
                         <div class="flex items-center justify-between mb-6">
                             <h3 class="text-sm font-bold text-slate-200 uppercase tracking-wider">CPU Utilization Profile</h3>
@@ -228,12 +263,12 @@ HTML = """
                     </div>
                 </div>
 
-                <!-- Table Section -->
                 <div class="glass-panel overflow-hidden">
                     <div class="px-6 py-4 border-b border-white/5 flex items-center justify-between bg-white/2">
                         <h3 class="text-sm font-bold text-slate-200 uppercase tracking-wider">Stage Breakdown</h3>
                         <span class="text-[10px] font-bold text-slate-500 uppercase tracking-widest">{{ stage_count }} Stages Tracked</span>
                     </div>
+
                     <div class="overflow-x-auto">
                         <table class="w-full text-left">
                             <thead>
@@ -242,10 +277,11 @@ HTML = """
                                     <th class="px-6 py-4 text-center">Status</th>
                                     <th class="px-6 py-4">Duration</th>
                                     <th class="px-6 py-4">Avg CPU</th>
-                                    <th class="px-6 py-4">Energy (kWh)</th>
-                                    <th class="px-6 py-4 text-right">Carbon (kg)</th>
+                                    <th class="px-6 py-4">Energy</th>
+                                    <th class="px-6 py-4 text-right">Carbon</th>
                                 </tr>
                             </thead>
+
                             <tbody class="divide-y divide-white/5">
                                 {% for row in rows %}
                                 <tr class="hover:bg-white/5 transition-colors group">
@@ -255,12 +291,15 @@ HTML = """
                                             <span class="font-bold text-slate-200">{{ row.stage }}</span>
                                         </div>
                                     </td>
+
                                     <td class="px-6 py-4 text-center">
                                         <span class="text-[10px] px-2 py-0.5 rounded-full font-bold uppercase {% if row.status == 'success' %}text-emerald-400 bg-emerald-500/10{% else %}text-rose-400 bg-rose-500/10{% endif %}">
                                             {{ row.status }}
                                         </span>
                                     </td>
+
                                     <td class="px-6 py-4 text-slate-300 font-medium">{{ row.duration_seconds }}s</td>
+
                                     <td class="px-6 py-4">
                                         <div class="flex items-center gap-2">
                                             <span class="text-slate-300">{{ row.avg_cpu_percent }}%</span>
@@ -269,8 +308,9 @@ HTML = """
                                             </div>
                                         </div>
                                     </td>
-                                    <td class="px-6 py-4 text-emerald-400 font-mono text-sm">{{ row.total_energy_kwh }}</td>
-                                    <td class="px-6 py-4 text-right text-sky-400 font-mono text-sm">{{ row.total_carbon_kg }}</td>
+
+                                    <td class="px-6 py-4 text-emerald-400 font-mono text-sm">{{ row.total_energy_kwh }} kWh</td>
+                                    <td class="px-6 py-4 text-right text-sky-400 font-mono text-sm">{{ row.total_carbon_kg }} kg</td>
                                 </tr>
                                 {% endfor %}
                             </tbody>
@@ -279,7 +319,7 @@ HTML = """
                 </div>
 
                 <footer class="text-center text-slate-500 text-[10px] uppercase tracking-[0.2em] pt-4 border-t border-white/5">
-                    Pipeline Engine v2.4 • Monitoring Active • Refreshes in 15s
+                    Pipeline Engine v2.5 • MongoDB-backed monitoring active • Refreshes every 15s
                 </footer>
             </main>
         </div>
@@ -302,7 +342,12 @@ HTML = """
         const chartConfig = {
             responsive: true,
             maintainAspectRatio: false,
-            plugins: { legend: { display: false } },
+            plugins: {
+                legend: {
+                    display: true,
+                    labels: { color: tickColor }
+                }
+            },
             scales: {
                 y: { grid: { color: gridColor }, border: { display: false } },
                 x: { grid: { display: false } }
@@ -342,6 +387,7 @@ HTML = """
             data: {
                 labels: stages,
                 datasets: [{
+                    label: "Average CPU %",
                     data: avgCpu,
                     borderColor: "rgba(245, 158, 11, 1)",
                     backgroundColor: "rgba(245, 158, 11, 0.1)",
@@ -358,31 +404,46 @@ HTML = """
 </html>
 """
 
+
 @app.route("/")
 def dashboard():
     df, data_source = load_metrics()
 
     if df.empty:
-        return "<div style='background:#020617; color:white; height:100vh; display:flex; align-items:center; justify-content:center; font-family:sans-serif;'><h2>No monitoring data found.</h2></div>"
+        return """
+        <div style='background:#020617; color:white; height:100vh; display:flex; align-items:center; justify-content:center; font-family:sans-serif;'>
+            <h2>No monitoring data found.</h2>
+        </div>
+        """
 
     numeric_cols = [
-        "duration_seconds", "avg_cpu_percent", "peak_cpu_percent",
-        "total_energy_kwh", "active_energy_kwh", "total_carbon_kg",
-        "active_carbon_kg", "carbon_intensity_kg_per_kwh"
+        "duration_seconds",
+        "avg_cpu_percent",
+        "peak_cpu_percent",
+        "total_energy_kwh",
+        "active_energy_kwh",
+        "total_carbon_kg",
+        "active_carbon_kg",
+        "carbon_intensity_kg_per_kwh"
     ]
 
     for col in numeric_cols:
-        if col not in df.columns: df[col] = 0
+        if col not in df.columns:
+            df[col] = 0
         df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0)
 
-    if "status" not in df.columns: df["status"] = "unknown"
-    if "end_timestamp" not in df.columns: df["end_timestamp"] = ""
-    if "carbon_source" not in df.columns: df["carbon_source"] = "unknown"
+    if "status" not in df.columns:
+        df["status"] = "unknown"
+    if "end_timestamp" not in df.columns:
+        df["end_timestamp"] = ""
+    if "carbon_source" not in df.columns:
+        df["carbon_source"] = "unknown"
 
     run_summary = (
         df.groupby("run_id")
         .agg(
             total_energy_kwh=("total_energy_kwh", "sum"),
+            total_carbon_kg=("total_carbon_kg", "sum"),
             duration_seconds=("duration_seconds", "sum"),
             status=("status", lambda x: "failed" if "failed" in list(x) else "success"),
             latest_time=("end_timestamp", "max")
@@ -395,27 +456,46 @@ def dashboard():
     selected_run = requested_run if requested_run in run_summary["run_id"].values else run_summary.iloc[0]["run_id"]
 
     latest = df[df["run_id"] == selected_run].copy()
+
     stage_order = ["build", "test", "deploy"]
     latest["stage"] = pd.Categorical(latest["stage"], categories=stage_order, ordered=True)
     latest = latest.sort_values("stage")
 
     summary = latest.groupby("stage", observed=True).mean(numeric_only=True).reset_index()
 
-    total_energy = round(latest["total_energy_kwh"].sum(), 6)
-    total_carbon = round(latest["total_carbon_kg"].sum(), 6)
-    carbon_intensity = round(latest["carbon_intensity_kg_per_kwh"].mean(), 6)
+    total_energy = round(latest["total_energy_kwh"].sum(), 8)
+    active_energy = round(latest["active_energy_kwh"].sum(), 8)
+    total_carbon = round(latest["total_carbon_kg"].sum(), 8)
     carbon_source = latest["carbon_source"].iloc[-1] if not latest.empty else "N/A"
     pipeline_duration = round(latest["duration_seconds"].sum(), 2)
+    avg_cpu = round(summary["avg_cpu_percent"].mean(), 2) if not summary.empty else 0
+
+    phone_charges = round(total_energy / 0.01, 3)
+    led_hours = round(total_energy / 0.01, 3)
+    car_meters = round(((total_carbon * 1000) / 120) * 1000, 3)
 
     highest_active_stage = summary.sort_values("active_energy_kwh", ascending=False).iloc[0]["stage"] if not summary.empty else "N/A"
     highest_total_stage = summary.sort_values("total_energy_kwh", ascending=False).iloc[0]["stage"] if not summary.empty else "N/A"
 
-    pipeline_insight = f"Run {selected_run} reached {total_energy} kWh with {total_carbon} kgCO₂eq. Tracking data sourced via {carbon_source}."
-    stage_insight = f"The {highest_active_stage} stage dominated active compute demand, while {highest_total_stage} had the largest power footprint."
+    pipeline_insight = (
+        f"Run {selected_run} used {total_energy} kWh and emitted {total_carbon} kgCO₂eq. "
+        f"That is approximately equal to charging a smartphone {phone_charges} times, "
+        f"running a 10W LED bulb for {led_hours} hours, or driving about {car_meters} meters in an average petrol car."
+    )
+
+    stage_insight = (
+        f"The {highest_active_stage} stage had the highest active compute demand, while "
+        f"{highest_total_stage} had the largest total energy footprint. This helps separate CPU-heavy stages "
+        f"from stages that consume energy mainly because they run longer."
+    )
 
     display_rows = latest.copy()
     for col in numeric_cols:
-        display_rows[col] = display_rows[col].round(6)
+        display_rows[col] = display_rows[col].round(8)
+
+    run_summary["total_energy_kwh"] = run_summary["total_energy_kwh"].round(8)
+    run_summary["total_carbon_kg"] = run_summary["total_carbon_kg"].round(8)
+    run_summary["duration_seconds"] = run_summary["duration_seconds"].round(2)
 
     return render_template_string(
         HTML,
@@ -423,20 +503,23 @@ def dashboard():
         data_source=data_source,
         runs=run_summary.to_dict(orient="records"),
         total_energy=total_energy,
+        active_energy=active_energy,
         total_carbon=total_carbon,
-        carbon_intensity=carbon_intensity,
-        carbon_source=carbon_source,
         pipeline_duration=pipeline_duration,
+        avg_cpu=avg_cpu,
+        phone_charges=phone_charges,
+        led_hours=led_hours,
+        car_meters=car_meters,
         stage_count=len(latest),
         pipeline_insight=pipeline_insight,
         stage_insight=stage_insight,
         rows=display_rows.to_dict(orient="records"),
         stages=json.dumps(summary["stage"].astype(str).tolist()),
-        total_energy_values=json.dumps(summary["total_energy_kwh"].tolist()),
-        active_energy_values=json.dumps(summary["active_energy_kwh"].tolist()),
-        cpu_values=json.dumps(summary["avg_cpu_percent"].tolist()),
-        cpu_values_raw=summary["avg_cpu_percent"].tolist()
+        total_energy_values=json.dumps(summary["total_energy_kwh"].round(8).tolist()),
+        active_energy_values=json.dumps(summary["active_energy_kwh"].round(8).tolist()),
+        cpu_values=json.dumps(summary["avg_cpu_percent"].round(2).tolist()),
     )
 
+
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=5051, debug=True)
+    app.run(host="0.0.0.0", port=5051, debug=False)
