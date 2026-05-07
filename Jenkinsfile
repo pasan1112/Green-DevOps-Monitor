@@ -7,7 +7,7 @@ pipeline {
         APP_PORT = "5052"
         RUN_ID = "${env.BUILD_TAG}"
         ELECTRICITYMAPS_API_KEY = "BpjVnaE4hWm9CE947xSP"
-        MONGO_URI = "mongodb+srv://admin:irindu%40mongo1112@green-devops-monitor.xxflzzs.mongodb.net/?appName=Green-DevOps-Monitor"
+        MONGO_URI = "MONGO_URI = "mongodb+srv://admin:irindumongo1112@green-devops-monitor.xxflzzs.mongodb.net/?retryWrites=true&w=majority&appName=Green-DevOps-Monitor""
     }
 
     stages {
