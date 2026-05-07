@@ -1,0 +1,32 @@
+{
+  "name": "real-backend",
+  "version": "1.0.0",
+  "description": "Demo Express backend for CI/CD monitoring scenarios",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node src/server.js",
+    "test": "jest --runInBand",
+    "build": "node scripts/build.js"
+  },
+  "keywords": [
+    "express",
+    "demo",
+    "backend",
+    "ci-cd"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "express": "^4.21.2"
+  },
+  "devDependencies": {
+    "jest": "^29.7.0",
+    "supertest": "^7.1.0"
+  },
+  "jest": {
+    "testEnvironment": "node",
+    "roots": [
+      "<rootDir>/tests"
+    ]
+  }
+}
