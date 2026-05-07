@@ -8,3 +8,6 @@ outputs/*.csv
 
 .env
 *.log
+
+real_backend/dist/
+real_backend/node_modules/
