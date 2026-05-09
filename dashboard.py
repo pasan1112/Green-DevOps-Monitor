@@ -34,6 +34,12 @@ NUMERIC_COLS = [
 ]
 
 DEFAULT_STAGE_ORDER = ["build", "test", "deploy"]
+PP1_ANOMALY_METRICS = [
+    "workload_duration_seconds",
+    "overhead_percentage",
+    "total_energy_kwh",
+    "total_carbon_kg",
+]
 
 
 def get_mongo_client():
@@ -245,6 +251,16 @@ def format_count(value):
     return f"{numeric:.2f}"
 
 
+def severity_rank(severity):
+    ranks = {
+        "critical": 0,
+        "warning": 1,
+        "info": 2,
+        "normal": 3,
+    }
+    return ranks.get(str(severity).lower(), 4)
+
+
 def metric_label(metric):
     labels = {
         "duration_seconds": "Workload duration",
@@ -258,6 +274,43 @@ def metric_label(metric):
         "avg_cpu_percent": "Average CPU load",
     }
     return labels.get(metric, str(metric).replace("_", " ").title())
+
+
+def deduplicate_anomalies(anomalies, allowed_metrics=None, limit=8):
+    filtered = []
+    for anomaly in anomalies:
+        if allowed_metrics and anomaly.get("metric") not in allowed_metrics:
+            continue
+        filtered.append(anomaly)
+
+    best_by_key = {}
+    for anomaly in filtered:
+        key = (str(anomaly.get("stage")), str(anomaly.get("metric")))
+        existing = best_by_key.get(key)
+        candidate_score = (
+            severity_rank(anomaly.get("severity")),
+            -abs(float(anomaly.get("percentage_change") or 0.0)),
+        )
+        if existing is None:
+            best_by_key[key] = anomaly
+            continue
+        existing_score = (
+            severity_rank(existing.get("severity")),
+            -abs(float(existing.get("percentage_change") or 0.0)),
+        )
+        if candidate_score < existing_score:
+            best_by_key[key] = anomaly
+
+    deduped = list(best_by_key.values())
+    deduped.sort(
+        key=lambda item: (
+            severity_rank(item.get("severity")),
+            -abs(float(item.get("percentage_change") or 0.0)),
+            str(item.get("stage")),
+            str(item.get("metric")),
+        )
+    )
+    return deduped[:limit]
 
 
 def format_metric_value(metric, value):
@@ -543,15 +596,6 @@ HTML = """
                             <p class="text-3xl font-black text-amber-400">{{ avg_cpu_display }}</p>
                             <p class="text-[10px] text-slate-500 mt-2 font-medium">Average compute utilization across all tracked stages</p>
                         </div>
-
-                        <div class="glass-panel p-5 relative overflow-hidden group">
-                            <div class="absolute -right-2 -bottom-2 opacity-5 transition-transform group-hover:scale-110">
-                                <i data-lucide="timer" class="w-24 h-24 text-purple-400"></i>
-                            </div>
-                            <p class="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Total Duration</p>
-                            <p class="text-3xl font-black text-purple-400">{{ pipeline_duration_display }}</p>
-                            <p class="text-[10px] text-slate-500 mt-2 font-medium">Total monitored workload runtime for the selected run</p>
-                        </div>
                     </div>
 
                     <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4 mt-4">
@@ -586,6 +630,9 @@ HTML = """
                             <p><span class="text-slate-200 font-semibold">Full Stage Duration</span> = Jenkins/server-side execution time including orchestration overhead.</p>
                             <p><span class="text-slate-200 font-semibold">Infrastructure Overhead</span> = full stage duration minus workload duration.</p>
                         </div>
+                        <p class="text-xs text-slate-500 mt-4">
+                            Workload values represent monitored command execution. Full-stage values include captured CI/CD orchestration overhead where available.
+                        </p>
                     </div>
 
                     <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mt-4">
@@ -622,13 +669,13 @@ HTML = """
                         <div>
                             <div class="flex items-center justify-between mb-4">
                                 <h3 class="text-sm font-bold text-slate-200 uppercase tracking-wider">Top Anomalies</h3>
-                                <span class="text-[10px] font-bold text-slate-500 uppercase tracking-widest">{{ anomaly_list|length }} Flagged</span>
+                                <span class="text-[10px] font-bold text-slate-500 uppercase tracking-widest">{{ anomaly_list|length }} Shown</span>
                             </div>
                             <div class="space-y-3">
                                 {% if anomaly_list %}
                                     {% for anomaly in anomaly_list[:3] %}
-                                    <div class="rounded-xl border {% if anomaly.severity == 'critical' %}border-rose-500/25 bg-rose-500/5{% else %}border-amber-500/25 bg-amber-500/5{% endif %} p-4">
-                                        <p class="text-sm font-semibold {% if anomaly.severity == 'critical' %}text-rose-300{% else %}text-amber-300{% endif %}">{{ anomaly.message }}</p>
+                                    <div class="rounded-xl border {% if anomaly.severity == 'critical' %}border-rose-500/25 bg-rose-500/5{% elif anomaly.severity == 'warning' %}border-amber-500/25 bg-amber-500/5{% else %}border-sky-500/25 bg-sky-500/5{% endif %} p-4">
+                                        <p class="text-sm font-semibold {% if anomaly.severity == 'critical' %}text-rose-300{% elif anomaly.severity == 'warning' %}text-amber-300{% else %}text-sky-300{% endif %}">{{ anomaly.message }}</p>
                                         <p class="text-[11px] text-slate-400 mt-1">
                                             Current {{ anomaly.current_display }}, usual {{ anomaly.baseline_display }}, z-score {{ anomaly.z_score_display }}
                                         </p>
@@ -636,8 +683,8 @@ HTML = """
                                     {% endfor %}
                                 {% else %}
                                     <div class="rounded-xl border border-emerald-500/20 bg-emerald-500/5 p-4">
-                                        <p class="text-sm font-semibold text-emerald-300">No warning or critical anomalies detected for this run.</p>
-                                        <p class="text-[11px] text-slate-500 mt-1">The current run stayed within normal stage-level behavior.</p>
+                                        <p class="text-sm font-semibold text-emerald-300">No major anomaly detected for this run.</p>
+                                        <p class="text-[11px] text-slate-500 mt-1">The current run stayed close to expected behavior for the key PP1 metrics.</p>
                                     </div>
                                 {% endif %}
                             </div>
@@ -648,6 +695,7 @@ HTML = """
                             <div class="space-y-3 text-sm text-slate-400">
                                 <p><span class="text-slate-200 font-semibold">Critical</span> means a stage moved far above normal and likely deserves investigation.</p>
                                 <p><span class="text-slate-200 font-semibold">Warning</span> means the stage was higher than expected, but the signal is less severe.</p>
+                                <p><span class="text-slate-200 font-semibold">Info</span> means a metric may be notable, but it is still consistent with previous runs.</p>
                                 <p><span class="text-slate-200 font-semibold">Z-score</span> shows how far the run is from normal behavior. Bigger positive values mean a larger deviation.</p>
                             </div>
                         </div>
@@ -678,7 +726,7 @@ HTML = """
                                         <td class="px-6 py-4 text-slate-300">{{ anomaly.percentage_change_display }}</td>
                                         <td class="px-6 py-4 text-slate-300">{{ anomaly.z_score_display }}</td>
                                         <td class="px-6 py-4 text-right">
-                                            <span class="text-[10px] px-2 py-0.5 rounded-full font-bold uppercase {% if anomaly.severity == 'critical' %}text-rose-300 bg-rose-500/10{% else %}text-amber-300 bg-amber-500/10{% endif %}">
+                                            <span class="text-[10px] px-2 py-0.5 rounded-full font-bold uppercase {% if anomaly.severity == 'critical' %}text-rose-300 bg-rose-500/10{% elif anomaly.severity == 'warning' %}text-amber-300 bg-amber-500/10{% else %}text-sky-300 bg-sky-500/10{% endif %}">
                                                 {{ anomaly.severity }}
                                             </span>
                                         </td>
@@ -686,7 +734,7 @@ HTML = """
                                     {% endfor %}
                                 {% else %}
                                     <tr>
-                                        <td colspan="7" class="px-6 py-6 text-center text-slate-500">No warning or critical anomalies to display for the selected run.</td>
+                                        <td colspan="7" class="px-6 py-6 text-center text-slate-500">No major anomaly detected for this run.</td>
                                     </tr>
                                 {% endif %}
                             </tbody>
@@ -820,8 +868,8 @@ HTML = """
         lucide.createIcons();
 
         const stages = {{ stages | safe }};
-        const totalEnergy = {{ total_energy_values | safe }};
-        const activeEnergy = {{ active_energy_values | safe }};
+        const fullStageEnergy = {{ total_energy_values | safe }};
+        const workloadEnergy = {{ workload_energy_values | safe }};
         const avgCpu = {{ cpu_values | safe }};
 
         const gridColor = "rgba(255, 255, 255, 0.05)";
@@ -837,10 +885,30 @@ HTML = """
                 legend: {
                     display: true,
                     labels: { color: tickColor }
+                },
+                tooltip: {
+                    callbacks: {
+                        label: function(context) {
+                            const value = Number(context.parsed.y || 0);
+                            const formatted = value === 0
+                                ? "0.00000000"
+                                : (Math.abs(value) < 0.01 ? value.toFixed(8) : value.toFixed(4));
+                            return `${context.dataset.label}: ${formatted} kWh`;
+                        }
+                    }
                 }
             },
             scales: {
-                y: { grid: { color: gridColor }, border: { display: false } },
+                y: {
+                    grid: { color: gridColor },
+                    border: { display: false },
+                    ticks: {
+                        callback: function(value) {
+                            const numeric = Number(value || 0);
+                            return Math.abs(numeric) < 0.01 ? numeric.toFixed(8) : numeric.toFixed(4);
+                        }
+                    }
+                },
                 x: { grid: { display: false } }
             }
         };
@@ -851,8 +919,8 @@ HTML = """
                 labels: stages,
                 datasets: [
                     {
-                        label: "Total kWh",
-                        data: totalEnergy,
+                        label: "Workload Energy",
+                        data: workloadEnergy,
                         backgroundColor: "rgba(16, 185, 129, 0.6)",
                         borderColor: "rgba(16, 185, 129, 1)",
                         borderWidth: 1,
@@ -860,8 +928,8 @@ HTML = """
                         barThickness: 20
                     },
                     {
-                        label: "Active kWh",
-                        data: activeEnergy,
+                        label: "Full Stage Estimated Energy",
+                        data: fullStageEnergy,
                         backgroundColor: "rgba(56, 189, 248, 0.6)",
                         borderColor: "rgba(56, 189, 248, 1)",
                         borderWidth: 1,
@@ -954,8 +1022,8 @@ def dashboard():
     anomalies = sorted(
         anomalies,
         key=lambda item: (
-            0 if item["severity"] == "critical" else 1,
-            -(item["percentage_change"] or 0),
+            severity_rank(item.get("severity")),
+            -abs(float(item.get("percentage_change") or 0.0)),
             str(item["stage"]),
             str(item["metric"]),
         ),
@@ -989,7 +1057,11 @@ def dashboard():
         summary.sort_values("total_energy_kwh", ascending=False).iloc[0]["stage"] if not summary.empty else "N/A"
     )
 
-    anomaly_teaser = anomalies[0]["message"] if anomalies else "No warning or critical anomalies were detected."
+    dashboard_anomalies = deduplicate_anomalies(anomalies, allowed_metrics=PP1_ANOMALY_METRICS, limit=8)
+    major_dashboard_anomalies = [item for item in dashboard_anomalies if item.get("severity") in {"critical", "warning"}]
+    anomaly_teaser = (
+        dashboard_anomalies[0]["message"] if dashboard_anomalies else "No major anomaly detected for this run."
+    )
     pipeline_insight = (
         f"Run {selected_run} used {format_kwh(total_energy)} and emitted {format_gco2_from_kg(total_carbon)}. "
         f"Health score: {health_score['score']}/100 ({health_score['grade']}). "
@@ -1040,7 +1112,7 @@ def dashboard():
     )
 
     formatted_anomalies = []
-    for anomaly in anomalies:
+    for anomaly in dashboard_anomalies:
         formatted_anomaly = dict(anomaly)
         formatted_anomaly["stage_label"] = str(anomaly["stage"]).replace("_", " ").title()
         formatted_anomaly["metric_label"] = metric_label(anomaly["metric"])
@@ -1089,7 +1161,7 @@ def dashboard():
         rows=display_rows.to_dict(orient="records"),
         stages=json.dumps(summary["stage"].astype(str).tolist()),
         total_energy_values=json.dumps(summary["total_energy_kwh"].round(8).tolist()),
-        active_energy_values=json.dumps(summary["active_energy_kwh"].round(8).tolist()),
+        workload_energy_values=json.dumps(summary["active_energy_kwh"].round(8).tolist()),
         cpu_values=json.dumps(summary["avg_cpu_percent"].round(2).tolist()),
         health_score=health_score,
         confidence_level=confidence_level,
@@ -1097,6 +1169,7 @@ def dashboard():
         anomaly_summary=anomaly_summary,
         comparison_rows=comparison_rows,
         anomaly_list=formatted_anomalies,
+        major_anomaly_count=len(major_dashboard_anomalies),
     )
 
 

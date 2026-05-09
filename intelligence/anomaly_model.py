@@ -97,21 +97,18 @@ def _build_anomaly(stage, metric, current_value, baseline_row):
         return None
 
     percentage_change = _percentage_change(current_value, mean)
+    absolute_difference = abs(current_value - mean)
     z_score = None
     if std is not None and std > 0:
         z_score = (current_value - mean) / std
 
-    severity = _determine_severity(metric, current_value, mean, percentage_change, z_score)
+    severity = _determine_severity(metric, current_value, mean, percentage_change, absolute_difference, z_score)
     if severity == "normal":
         return None
 
     stage_label = str(stage).replace("_", " ").title()
     metric_label = _metric_label(metric)
-    if metric == "overhead_percentage":
-        message = f"{stage_label} {metric_label} reached {round(current_value, 2)}%, which is above the preferred threshold."
-    else:
-        change_text = _format_percentage_for_message(percentage_change)
-        message = f"{stage_label} {metric_label} is {change_text} above historical baseline."
+    message = _build_message(stage_label, metric, metric_label, current_value, percentage_change, severity)
 
     return {
         "stage": stage,
@@ -125,30 +122,34 @@ def _build_anomaly(stage, metric, current_value, baseline_row):
     }
 
 
-def _determine_severity(metric, current_value, baseline_mean, percentage_change, z_score):
+def _determine_severity(metric, current_value, baseline_mean, percentage_change, absolute_difference, z_score):
+    if metric == "workload_duration_seconds" and absolute_difference < 1.0:
+        return "normal"
+
     if metric == "overhead_percentage":
-        if current_value > 85:
+        if current_value >= 85 and (percentage_change is not None and percentage_change >= 20):
             return "critical"
-        if current_value > 60:
+        if current_value >= 60 and (percentage_change is not None and percentage_change >= 10):
             return "warning"
+        if current_value >= 60:
+            return "info"
+        return "normal"
 
     if baseline_mean is None or current_value <= baseline_mean:
         return "normal"
 
-    severity = "normal"
-    if percentage_change is not None:
-        if percentage_change > 75:
-            severity = "critical"
-        elif percentage_change > 30:
-            severity = "warning"
+    if percentage_change is None:
+        return "normal"
 
-    if z_score is not None:
-        if z_score >= 2.0:
-            severity = "critical"
-        elif z_score >= 1.0 and severity != "critical":
-            severity = "warning"
-
-    return severity
+    if percentage_change >= 75:
+        return "critical"
+    if percentage_change >= 30:
+        return "warning"
+    if z_score is not None and percentage_change >= 20 and z_score >= 2.5:
+        return "critical"
+    if z_score is not None and percentage_change >= 10 and z_score >= 1.5:
+        return "warning"
+    return "normal"
 
 
 def _percentage_change(current_value, baseline_mean):
@@ -161,6 +162,26 @@ def _format_percentage_for_message(percentage_change):
     if percentage_change is None:
         return "materially"
     return f"{round(percentage_change)}%"
+
+
+def _build_message(stage_label, metric, metric_label, current_value, percentage_change, severity):
+    if metric == "overhead_percentage" and severity == "info":
+        return f"{stage_label} overhead is high, but consistent with previous runs."
+    if severity == "info":
+        return f"{stage_label} {metric_label} is stable compared with baseline."
+    if percentage_change is None:
+        return f"{stage_label} {metric_label} is above baseline."
+
+    rounded_change = round(percentage_change)
+    if metric == "overhead_percentage":
+        return f"{stage_label} overhead is {rounded_change}% above baseline."
+    if metric == "total_energy_kwh":
+        return f"{stage_label} energy is {rounded_change}% above baseline."
+    if metric == "total_carbon_kg":
+        return f"{stage_label} carbon footprint is {rounded_change}% above baseline."
+    if metric == "workload_duration_seconds":
+        return f"{stage_label} workload duration is {rounded_change}% above baseline."
+    return f"{stage_label} {metric_label} is {rounded_change}% above baseline."
 
 
 def _metric_label(metric):
