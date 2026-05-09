@@ -9,6 +9,10 @@ import pandas as pd
 
 STAGE_BASELINE_METRICS = [
     "duration_seconds",
+    "workload_duration_seconds",
+    "jenkins_stage_duration_seconds",
+    "infrastructure_overhead_seconds",
+    "overhead_percentage",
     "avg_cpu_percent",
     "total_energy_kwh",
     "active_energy_kwh",
@@ -18,6 +22,10 @@ STAGE_BASELINE_METRICS = [
 
 PIPELINE_BASELINE_METRICS = [
     "duration_seconds",
+    "workload_duration_seconds",
+    "jenkins_stage_duration_seconds",
+    "infrastructure_overhead_seconds",
+    "overhead_percentage",
     "total_energy_kwh",
     "total_carbon_kg",
 ]
@@ -81,7 +89,7 @@ def calculate_stage_baselines(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def calculate_pipeline_baseline(df: pd.DataFrame) -> Dict[str, float]:
-    """Return overall run-level mean/std baselines for duration, energy, and carbon."""
+    """Return overall run-level mean/std baselines for timing, energy, carbon, and overhead."""
     required_columns = ["run_id", *PIPELINE_BASELINE_METRICS]
     prepared = _prepare_dataframe(df, required_columns, PIPELINE_BASELINE_METRICS)
 
@@ -90,17 +98,30 @@ def calculate_pipeline_baseline(df: pd.DataFrame) -> Dict[str, float]:
             "run_count": 0,
             "duration_seconds_mean": None,
             "duration_seconds_std": None,
+            "workload_duration_seconds_mean": None,
+            "workload_duration_seconds_std": None,
+            "jenkins_stage_duration_seconds_mean": None,
+            "jenkins_stage_duration_seconds_std": None,
+            "infrastructure_overhead_seconds_mean": None,
+            "infrastructure_overhead_seconds_std": None,
+            "overhead_percentage_mean": None,
+            "overhead_percentage_std": None,
             "total_energy_kwh_mean": None,
             "total_energy_kwh_std": None,
             "total_carbon_kg_mean": None,
             "total_carbon_kg_std": None,
         }
 
-    pipeline_totals = (
-        prepared.groupby("run_id", dropna=False)[PIPELINE_BASELINE_METRICS]
-        .sum(min_count=1)
-        .reset_index()
-    )
+    aggregation_map = {
+        "duration_seconds": "sum",
+        "workload_duration_seconds": "sum",
+        "jenkins_stage_duration_seconds": "sum",
+        "infrastructure_overhead_seconds": "sum",
+        "overhead_percentage": "mean",
+        "total_energy_kwh": "sum",
+        "total_carbon_kg": "sum",
+    }
+    pipeline_totals = prepared.groupby("run_id", dropna=False).agg(aggregation_map).reset_index()
 
     baseline: Dict[str, float] = {"run_count": int(len(pipeline_totals))}
     for metric in PIPELINE_BASELINE_METRICS:

@@ -22,7 +22,13 @@ def calculate_sustainability_score(
     score -= warning_count * 7
 
     current = current_run_df.copy() if current_run_df is not None else pd.DataFrame()
-    for column in ["duration_seconds", "total_energy_kwh", "total_carbon_kg"]:
+    for column in [
+        "duration_seconds",
+        "total_energy_kwh",
+        "total_carbon_kg",
+        "overhead_percentage",
+        "infrastructure_overhead_seconds",
+    ]:
         if column not in current.columns:
             current[column] = 0.0
         current[column] = pd.to_numeric(current[column], errors="coerce").fillna(0.0)
@@ -46,6 +52,14 @@ def calculate_sustainability_score(
     if _is_above_baseline(current_totals["duration_seconds"], baseline_df.get("duration_seconds_mean"), 30):
         score -= 8
         explanation_bits.append("pipeline duration is above baseline")
+
+    max_overhead_percentage = float(current["overhead_percentage"].max()) if not current.empty else 0.0
+    if max_overhead_percentage > 85:
+        score -= 12
+        explanation_bits.append("infrastructure overhead is extremely high")
+    elif max_overhead_percentage > 60:
+        score -= 5
+        explanation_bits.append("infrastructure overhead is above the preferred range")
 
     failed_stage = False
     if "status" in current.columns:

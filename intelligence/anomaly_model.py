@@ -9,6 +9,10 @@ import pandas as pd
 
 ANOMALY_METRICS = [
     "duration_seconds",
+    "workload_duration_seconds",
+    "jenkins_stage_duration_seconds",
+    "infrastructure_overhead_seconds",
+    "overhead_percentage",
     "total_energy_kwh",
     "active_energy_kwh",
     "total_carbon_kg",
@@ -34,6 +38,10 @@ def detect_stage_anomalies(current_run_df: pd.DataFrame, baseline_df: pd.DataFra
         current.groupby("stage", dropna=False)
         .agg(
             duration_seconds=("duration_seconds", "sum"),
+            workload_duration_seconds=("workload_duration_seconds", "sum"),
+            jenkins_stage_duration_seconds=("jenkins_stage_duration_seconds", "sum"),
+            infrastructure_overhead_seconds=("infrastructure_overhead_seconds", "sum"),
+            overhead_percentage=("overhead_percentage", "mean"),
             total_energy_kwh=("total_energy_kwh", "sum"),
             active_energy_kwh=("active_energy_kwh", "sum"),
             total_carbon_kg=("total_carbon_kg", "sum"),
@@ -93,14 +101,17 @@ def _build_anomaly(stage, metric, current_value, baseline_row):
     if std is not None and std > 0:
         z_score = (current_value - mean) / std
 
-    severity = _determine_severity(current_value, mean, percentage_change, z_score)
+    severity = _determine_severity(metric, current_value, mean, percentage_change, z_score)
     if severity == "normal":
         return None
 
-    change_text = _format_percentage_for_message(percentage_change)
     stage_label = str(stage).replace("_", " ").title()
-    metric_label = metric.replace("_", " ")
-    message = f"{stage_label} {metric_label} is {change_text} above historical baseline."
+    metric_label = _metric_label(metric)
+    if metric == "overhead_percentage":
+        message = f"{stage_label} {metric_label} reached {round(current_value, 2)}%, which is above the preferred threshold."
+    else:
+        change_text = _format_percentage_for_message(percentage_change)
+        message = f"{stage_label} {metric_label} is {change_text} above historical baseline."
 
     return {
         "stage": stage,
@@ -114,7 +125,13 @@ def _build_anomaly(stage, metric, current_value, baseline_row):
     }
 
 
-def _determine_severity(current_value, baseline_mean, percentage_change, z_score):
+def _determine_severity(metric, current_value, baseline_mean, percentage_change, z_score):
+    if metric == "overhead_percentage":
+        if current_value > 85:
+            return "critical"
+        if current_value > 60:
+            return "warning"
+
     if baseline_mean is None or current_value <= baseline_mean:
         return "normal"
 
@@ -144,6 +161,21 @@ def _format_percentage_for_message(percentage_change):
     if percentage_change is None:
         return "materially"
     return f"{round(percentage_change)}%"
+
+
+def _metric_label(metric):
+    labels = {
+        "duration_seconds": "workload duration",
+        "workload_duration_seconds": "workload duration",
+        "jenkins_stage_duration_seconds": "full stage duration",
+        "infrastructure_overhead_seconds": "infrastructure overhead",
+        "overhead_percentage": "overhead percentage",
+        "total_energy_kwh": "total energy",
+        "active_energy_kwh": "active energy",
+        "total_carbon_kg": "carbon footprint",
+        "avg_cpu_percent": "average CPU load",
+    }
+    return labels.get(metric, metric.replace("_", " "))
 
 
 def _to_float(value):

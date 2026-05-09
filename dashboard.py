@@ -21,6 +21,10 @@ CSV_FALLBACK_PATH = "data/metrics.csv"
 
 NUMERIC_COLS = [
     "duration_seconds",
+    "workload_duration_seconds",
+    "jenkins_stage_duration_seconds",
+    "infrastructure_overhead_seconds",
+    "overhead_percentage",
     "avg_cpu_percent",
     "peak_cpu_percent",
     "total_energy_kwh",
@@ -73,10 +77,47 @@ def prepare_metrics_dataframe(df):
         prepared["stage"] = "unknown"
     prepared["stage"] = prepared["stage"].fillna("unknown").astype(str)
 
+    jenkins_stage_duration_present = "jenkins_stage_duration_seconds" in prepared.columns
+    prepared["jenkins_stage_duration_captured"] = (
+        prepared["jenkins_stage_duration_seconds"].notna() if jenkins_stage_duration_present else False
+    )
+    prepared["workload_duration_captured"] = (
+        prepared["workload_duration_seconds"].notna() if "workload_duration_seconds" in prepared.columns else True
+    )
+
     for col in NUMERIC_COLS:
         if col not in prepared.columns:
             prepared[col] = 0.0
         prepared[col] = pd.to_numeric(prepared[col], errors="coerce").fillna(0.0)
+
+    if "workload_duration_seconds" not in df.columns:
+        prepared["workload_duration_seconds"] = prepared["duration_seconds"]
+    else:
+        prepared.loc[~prepared["workload_duration_captured"], "workload_duration_seconds"] = prepared.loc[
+            ~prepared["workload_duration_captured"], "duration_seconds"
+        ]
+    if "jenkins_stage_duration_seconds" not in df.columns:
+        prepared["jenkins_stage_duration_seconds"] = prepared["workload_duration_seconds"]
+    else:
+        prepared.loc[~prepared["jenkins_stage_duration_captured"], "jenkins_stage_duration_seconds"] = prepared.loc[
+            ~prepared["jenkins_stage_duration_captured"], "workload_duration_seconds"
+        ]
+    if "infrastructure_overhead_seconds" not in df.columns:
+        prepared["infrastructure_overhead_seconds"] = (
+            prepared["jenkins_stage_duration_seconds"] - prepared["workload_duration_seconds"]
+        ).clip(lower=0)
+    else:
+        prepared["infrastructure_overhead_seconds"] = prepared["infrastructure_overhead_seconds"].clip(lower=0)
+    if "overhead_percentage" not in df.columns:
+        prepared["overhead_percentage"] = 0.0
+        non_zero_duration = prepared["jenkins_stage_duration_seconds"] > 0
+        prepared.loc[non_zero_duration, "overhead_percentage"] = (
+            prepared.loc[non_zero_duration, "infrastructure_overhead_seconds"]
+            / prepared.loc[non_zero_duration, "jenkins_stage_duration_seconds"]
+            * 100.0
+        )
+    else:
+        prepared.loc[~prepared["jenkins_stage_duration_captured"], "overhead_percentage"] = 0.0
 
     if "status" not in prepared.columns:
         prepared["status"] = "unknown"
@@ -90,6 +131,11 @@ def prepare_metrics_dataframe(df):
         prepared["carbon_source"] = "unknown"
     prepared["carbon_source"] = prepared["carbon_source"].fillna("unknown").astype(str)
 
+    for col in ["stage_start_timestamp", "stage_end_timestamp"]:
+        if col not in prepared.columns:
+            prepared[col] = ""
+        prepared[col] = prepared[col].fillna("").astype(str)
+
     return prepared
 
 
@@ -101,8 +147,10 @@ def build_run_summary(df):
                 "total_energy_kwh",
                 "total_carbon_kg",
                 "duration_seconds",
+                "jenkins_stage_duration_seconds",
                 "status",
                 "latest_time",
+                "jenkins_stage_duration_captured",
             ]
         )
 
@@ -112,8 +160,10 @@ def build_run_summary(df):
             total_energy_kwh=("total_energy_kwh", "sum"),
             total_carbon_kg=("total_carbon_kg", "sum"),
             duration_seconds=("duration_seconds", "sum"),
+            jenkins_stage_duration_seconds=("jenkins_stage_duration_seconds", "sum"),
             status=("status", lambda x: "failed" if x.astype(str).str.lower().eq("failed").any() else "success"),
             latest_time=("end_timestamp", "max"),
+            jenkins_stage_duration_captured=("jenkins_stage_duration_captured", "max"),
         )
         .reset_index()
         .sort_values(["latest_time", "run_id"], ascending=[False, False])
@@ -170,10 +220,6 @@ def format_gco2_from_kg(value):
 
 def format_seconds(value):
     numeric = 0.0 if value is None or pd.isna(value) else float(value)
-    if numeric >= 60:
-        minutes = int(numeric // 60)
-        seconds = numeric - (minutes * 60)
-        return f"{minutes}m {seconds:.2f}s"
     return f"{numeric:.2f}s"
 
 
@@ -191,7 +237,11 @@ def format_count(value):
 
 def metric_label(metric):
     labels = {
-        "duration_seconds": "Duration",
+        "duration_seconds": "Workload duration",
+        "workload_duration_seconds": "Workload duration",
+        "jenkins_stage_duration_seconds": "Full stage duration",
+        "infrastructure_overhead_seconds": "Infrastructure overhead",
+        "overhead_percentage": "Overhead percentage",
         "total_energy_kwh": "Total energy",
         "active_energy_kwh": "Active energy",
         "total_carbon_kg": "Carbon footprint",
@@ -207,6 +257,10 @@ def format_metric_value(metric, value):
         return format_gco2_from_kg(value)
     if metric == "duration_seconds":
         return format_seconds(value)
+    if metric in {"workload_duration_seconds", "jenkins_stage_duration_seconds", "infrastructure_overhead_seconds"}:
+        return format_seconds(value)
+    if metric == "overhead_percentage":
+        return format_percent(value)
     if metric == "avg_cpu_percent":
         return format_percent(value)
     return format_count(value)
@@ -216,7 +270,7 @@ def build_comparison_rows(current_run_df, pipeline_baseline):
     comparisons = [
         ("Total Energy", "kWh", "total_energy_kwh"),
         ("Total Carbon", "kgCO2e", "total_carbon_kg"),
-        ("Total Duration", "s", "duration_seconds"),
+        ("Total Workload Duration", "s", "duration_seconds"),
     ]
     rows = []
     for label, unit, metric in comparisons:
@@ -486,7 +540,41 @@ HTML = """
                             </div>
                             <p class="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Total Duration</p>
                             <p class="text-3xl font-black text-purple-400">{{ pipeline_duration_display }}</p>
-                            <p class="text-[10px] text-slate-500 mt-2 font-medium">Total monitored runtime for the selected run</p>
+                            <p class="text-[10px] text-slate-500 mt-2 font-medium">Total monitored workload runtime for the selected run</p>
+                        </div>
+                    </div>
+
+                    <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4 mt-4">
+                        <div class="glass-panel p-5">
+                            <p class="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Full Stage Duration</p>
+                            <p class="text-2xl font-black text-white">{{ full_stage_duration_display }}</p>
+                            <p class="text-[10px] text-slate-500 mt-2 font-medium">Jenkins/server-side stage time including orchestration overhead</p>
+                        </div>
+
+                        <div class="glass-panel p-5">
+                            <p class="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Workload Duration</p>
+                            <p class="text-2xl font-black text-emerald-300">{{ workload_duration_display }}</p>
+                            <p class="text-[10px] text-slate-500 mt-2 font-medium">Time spent executing monitored CI/CD commands</p>
+                        </div>
+
+                        <div class="glass-panel p-5">
+                            <p class="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Infrastructure Overhead</p>
+                            <p class="text-2xl font-black text-amber-300">{{ infrastructure_overhead_display }}</p>
+                            <p class="text-[10px] text-slate-500 mt-2 font-medium">Full stage duration minus monitored workload duration</p>
+                        </div>
+
+                        <div class="glass-panel p-5">
+                            <p class="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Overhead %</p>
+                            <p class="text-2xl font-black text-sky-300">{{ overhead_percentage_display }}</p>
+                            <p class="text-[10px] text-slate-500 mt-2 font-medium">Share of stage time spent in setup, orchestration, or cleanup</p>
+                        </div>
+                    </div>
+
+                    <div class="rounded-2xl border border-white/5 bg-slate-950/30 p-5 mt-4">
+                        <div class="grid grid-cols-1 lg:grid-cols-3 gap-4 text-sm text-slate-400">
+                            <p><span class="text-slate-200 font-semibold">Workload Duration</span> = time spent executing monitored CI/CD commands.</p>
+                            <p><span class="text-slate-200 font-semibold">Full Stage Duration</span> = Jenkins/server-side execution time including orchestration overhead.</p>
+                            <p><span class="text-slate-200 font-semibold">Infrastructure Overhead</span> = full stage duration minus workload duration.</p>
                         </div>
                     </div>
 
@@ -663,7 +751,9 @@ HTML = """
                                     <tr class="text-[11px] font-bold text-slate-400 uppercase tracking-wider bg-slate-900/40">
                                         <th class="px-6 py-4">Stage</th>
                                         <th class="px-6 py-4 text-center">Status</th>
-                                        <th class="px-6 py-4">Duration</th>
+                                        <th class="px-6 py-4">Workload Duration</th>
+                                        <th class="px-6 py-4">Full Duration</th>
+                                        <th class="px-6 py-4">Overhead</th>
                                         <th class="px-6 py-4">Avg CPU</th>
                                         <th class="px-6 py-4">Energy</th>
                                         <th class="px-6 py-4 text-right">Carbon</th>
@@ -686,7 +776,9 @@ HTML = """
                                             </span>
                                         </td>
 
-                                        <td class="px-6 py-4 text-slate-300 font-medium">{{ row.duration_display }}</td>
+                                        <td class="px-6 py-4 text-slate-300 font-medium">{{ row.workload_duration_display }}</td>
+                                        <td class="px-6 py-4 text-slate-300 font-medium">{{ row.full_duration_display }}</td>
+                                        <td class="px-6 py-4 text-slate-300 font-medium">{{ row.overhead_display }}</td>
 
                                         <td class="px-6 py-4">
                                             <div class="flex items-center gap-2">
@@ -835,6 +927,11 @@ def dashboard():
         current_run_df.groupby("stage", observed=True)
         .agg(
             duration_seconds=("duration_seconds", "sum"),
+            workload_duration_seconds=("workload_duration_seconds", "sum"),
+            jenkins_stage_duration_seconds=("jenkins_stage_duration_seconds", "sum"),
+            infrastructure_overhead_seconds=("infrastructure_overhead_seconds", "sum"),
+            overhead_percentage=("overhead_percentage", "mean"),
+            jenkins_stage_duration_captured=("jenkins_stage_duration_captured", "max"),
             avg_cpu_percent=("avg_cpu_percent", "mean"),
             total_energy_kwh=("total_energy_kwh", "sum"),
             active_energy_kwh=("active_energy_kwh", "sum"),
@@ -861,7 +958,15 @@ def dashboard():
     active_energy = round(float(current_run_df["active_energy_kwh"].sum()), 8)
     total_carbon = round(float(current_run_df["total_carbon_kg"].sum()), 8)
     pipeline_duration = round(float(current_run_df["duration_seconds"].sum()), 2)
+    workload_duration = round(float(current_run_df["workload_duration_seconds"].sum()), 2)
+    jenkins_stage_duration = round(float(current_run_df["jenkins_stage_duration_seconds"].sum()), 2)
+    infrastructure_overhead = round(float(current_run_df["infrastructure_overhead_seconds"].sum()), 2)
+    overhead_percentage = round(
+        (infrastructure_overhead / jenkins_stage_duration * 100.0) if jenkins_stage_duration > 0 else 0.0,
+        2,
+    )
     avg_cpu = round(float(summary["avg_cpu_percent"].mean()), 2) if not summary.empty else 0
+    has_full_stage_timing = bool(current_run_df["jenkins_stage_duration_captured"].any())
 
     phone_charges = round(total_energy / 0.01, 3) if total_energy else 0
     led_hours = round(total_energy / 0.01, 3) if total_energy else 0
@@ -877,7 +982,10 @@ def dashboard():
     anomaly_teaser = anomalies[0]["message"] if anomalies else "No warning or critical anomalies were detected."
     pipeline_insight = (
         f"Run {selected_run} used {format_kwh(total_energy)} and emitted {format_gco2_from_kg(total_carbon)}. "
-        f"Health score: {health_score['score']}/100 ({health_score['grade']}). {anomaly_teaser}"
+        f"Health score: {health_score['score']}/100 ({health_score['grade']}). "
+        f"Workload time was {format_seconds(workload_duration)}"
+        f"{f', with {format_seconds(infrastructure_overhead)} of infrastructure overhead.' if has_full_stage_timing else '.'} "
+        f"{anomaly_teaser}"
     )
 
     stage_insight = (
@@ -894,13 +1002,32 @@ def dashboard():
     display_rows = summary.merge(stage_status, on="stage", how="left")
     display_rows["stage_label"] = display_rows["stage"].astype(str).str.replace("_", " ").str.title()
     display_rows["duration_display"] = display_rows["duration_seconds"].apply(format_seconds)
+    display_rows["workload_duration_display"] = display_rows["workload_duration_seconds"].apply(format_seconds)
+    display_rows["full_duration_display"] = display_rows.apply(
+        lambda row: format_seconds(row["jenkins_stage_duration_seconds"])
+        if row["jenkins_stage_duration_captured"] else "Not captured",
+        axis=1,
+    )
+    display_rows["overhead_display"] = display_rows.apply(
+        lambda row: format_seconds(row["infrastructure_overhead_seconds"])
+        if row["jenkins_stage_duration_captured"] else "Not captured",
+        axis=1,
+    )
+    display_rows["overhead_percentage_display"] = display_rows.apply(
+        lambda row: format_percent(row["overhead_percentage"]) if row["jenkins_stage_duration_captured"] else "Not captured",
+        axis=1,
+    )
     display_rows["avg_cpu_display"] = display_rows["avg_cpu_percent"].apply(format_percent)
     display_rows["total_energy_display"] = display_rows["total_energy_kwh"].apply(format_kwh)
     display_rows["total_carbon_display"] = display_rows["total_carbon_kg"].apply(format_gco2_from_kg)
 
     run_summary["total_energy_display"] = run_summary["total_energy_kwh"].apply(format_kwh)
     run_summary["total_carbon_display"] = run_summary["total_carbon_kg"].apply(format_gco2_from_kg)
-    run_summary["duration_display"] = run_summary["duration_seconds"].apply(format_seconds)
+    run_summary["duration_display"] = run_summary.apply(
+        lambda row: format_seconds(row["jenkins_stage_duration_seconds"])
+        if row["jenkins_stage_duration_captured"] else format_seconds(row["duration_seconds"]),
+        axis=1,
+    )
 
     formatted_anomalies = []
     for anomaly in anomalies:
@@ -926,11 +1053,19 @@ def dashboard():
         active_energy=active_energy,
         total_carbon=total_carbon,
         pipeline_duration=pipeline_duration,
+        workload_duration=workload_duration,
+        jenkins_stage_duration=jenkins_stage_duration,
+        infrastructure_overhead=infrastructure_overhead,
+        overhead_percentage=overhead_percentage,
         avg_cpu=avg_cpu,
         total_energy_display=format_kwh(total_energy),
         active_energy_display=format_kwh(active_energy),
         total_carbon_display=format_gco2_from_kg(total_carbon),
         pipeline_duration_display=format_seconds(pipeline_duration),
+        workload_duration_display=format_seconds(workload_duration),
+        full_stage_duration_display=format_seconds(jenkins_stage_duration) if has_full_stage_timing else "Not captured",
+        infrastructure_overhead_display=format_seconds(infrastructure_overhead) if has_full_stage_timing else "Not captured",
+        overhead_percentage_display=format_percent(overhead_percentage) if has_full_stage_timing else "Not captured",
         avg_cpu_display=format_percent(avg_cpu),
         phone_charges=phone_charges,
         led_hours=led_hours,
