@@ -251,6 +251,13 @@ def format_count(value):
     return f"{numeric:.2f}"
 
 
+def format_equivalent(value, unit_suffix, tiny_suffix):
+    numeric = 0.0 if value is None or pd.isna(value) else float(value)
+    if numeric < 0.01:
+        return f"< 0.01{tiny_suffix}"
+    return f"{format_count(numeric)}{unit_suffix}"
+
+
 def severity_rank(severity):
     ranks = {
         "critical": 0,
@@ -357,7 +364,7 @@ def build_comparison_rows(current_run_df, pipeline_baseline):
 
 HTML = """
 <!DOCTYPE html>
-<html lang="en" class="dark">
+<html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -371,31 +378,34 @@ HTML = """
         @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&display=swap');
 
         :root {
-            --glass: rgba(15, 23, 42, 0.65);
-            --border: rgba(255, 255, 255, 0.08);
+            --panel: #ffffff;
+            --border: #e2e8f0;
+            --text: #0f172a;
+            --muted: #64748b;
+            --bg: #f8fafc;
+            --shadow: 0 12px 30px rgba(15, 23, 42, 0.08);
         }
 
         body {
             font-family: 'Plus Jakarta Sans', sans-serif;
-            background: #020617;
+            background: var(--bg);
             background-image:
-                radial-gradient(at 0% 0%, rgba(16, 185, 129, 0.1) 0px, transparent 50%),
-                radial-gradient(at 100% 0%, rgba(59, 130, 246, 0.1) 0px, transparent 50%);
-            color: #f1f5f9;
+                radial-gradient(at 0% 0%, rgba(16, 185, 129, 0.08) 0px, transparent 45%),
+                radial-gradient(at 100% 0%, rgba(59, 130, 246, 0.08) 0px, transparent 40%);
+            color: var(--text);
             min-height: 100vh;
         }
 
         .glass-panel {
-            background: var(--glass);
-            backdrop-filter: blur(12px);
-            -webkit-backdrop-filter: blur(12px);
+            background: var(--panel);
             border: 1px solid var(--border);
             border-radius: 1rem;
+            box-shadow: var(--shadow);
         }
 
         .sidebar-scroll::-webkit-scrollbar { width: 4px; }
-        .sidebar-scroll::-webkit-scrollbar-track { background: transparent; }
-        .sidebar-scroll::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 10px; }
+        .sidebar-scroll::-webkit-scrollbar-track { background: #f8fafc; }
+        .sidebar-scroll::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 10px; }
 
         .status-pulse {
             width: 8px;
@@ -414,9 +424,48 @@ HTML = """
         }
 
         .nav-item-active {
-            background: rgba(16, 185, 129, 0.15);
-            border-color: rgba(16, 185, 129, 0.4) !important;
+            background: rgba(16, 185, 129, 0.08);
+            border-color: rgba(16, 185, 129, 0.35) !important;
         }
+
+        .sidebar-sticky {
+            position: sticky;
+            top: 24px;
+            max-height: calc(100vh - 48px);
+        }
+
+        .text-white { color: #0f172a !important; }
+        .text-slate-200 { color: #1e293b !important; }
+        .text-slate-300 { color: #334155 !important; }
+        .text-slate-400 { color: #64748b !important; }
+        .text-slate-500 { color: #64748b !important; }
+        .text-emerald-100\\/70 { color: #065f46 !important; }
+        .text-sky-100\\/70 { color: #0f4c81 !important; }
+        .bg-white\\/2 { background: #f8fafc !important; }
+        .bg-slate-900\\/40 { background: #f8fafc !important; }
+        .bg-slate-950\\/30 { background: #f8fafc !important; }
+        .border-white\\/5 { border-color: #e2e8f0 !important; }
+        .hover\\:bg-white\\/5:hover { background: #f8fafc !important; }
+        .hover\\:border-white\\/10:hover { border-color: #cbd5e1 !important; }
+        .bg-emerald-500\\/5 { background: rgba(16, 185, 129, 0.06) !important; }
+        .bg-sky-500\\/5 { background: rgba(14, 165, 233, 0.06) !important; }
+        .text-emerald-300 { color: #059669 !important; }
+        .text-sky-300 { color: #0284c7 !important; }
+        .text-amber-300 { color: #d97706 !important; }
+        .text-rose-300 { color: #e11d48 !important; }
+        .text-emerald-400 { color: #10b981 !important; }
+        .text-sky-400 { color: #0ea5e9 !important; }
+        .text-amber-400 { color: #f59e0b !important; }
+        .text-rose-400 { color: #f43f5e !important; }
+        .text-purple-400 { color: #7c3aed !important; }
+        .bg-slate-800 { background: #e2e8f0 !important; }
+        .bg-emerald-500\\/10 { background: rgba(16, 185, 129, 0.12) !important; }
+        .bg-rose-500\\/10 { background: rgba(244, 63, 94, 0.12) !important; }
+        .bg-amber-500\\/10 { background: rgba(245, 158, 11, 0.12) !important; }
+        .bg-sky-500\\/10 { background: rgba(14, 165, 233, 0.12) !important; }
+        .bg-emerald-500\\/20 { background: rgba(16, 185, 129, 0.12) !important; }
+        .bg-rose-500\\/20 { background: rgba(244, 63, 94, 0.12) !important; }
+        table tbody tr:hover { background: #f8fafc !important; }
     </style>
 </head>
 
@@ -429,53 +478,53 @@ HTML = """
                     <div class="p-2 bg-emerald-500/20 rounded-lg">
                         <i data-lucide="leaf" class="text-emerald-400 w-8 h-8"></i>
                     </div>
-                    <h1 class="text-3xl font-extrabold tracking-tight text-white">
+                    <h1 class="text-3xl font-extrabold tracking-tight text-slate-900">
                         Green DevOps <span class="text-emerald-400">Monitor</span>
                     </h1>
                 </div>
-                <p class="text-slate-400 mt-1 font-medium">
+                <p class="text-slate-600 mt-1 font-medium">
                     CI/CD sustainability, carbon, and pipeline efficiency analytics
                 </p>
             </div>
 
             <div class="flex gap-2 flex-wrap">
-                <div class="glass-panel px-4 py-2 flex items-center gap-2 border-emerald-500/20">
+                <div class="glass-panel px-4 py-2 flex items-center gap-2">
                     <span class="status-pulse bg-emerald-500"></span>
-                    <span class="text-sm font-semibold text-emerald-100">{{ data_source }}</span>
+                    <span class="text-sm font-semibold text-slate-700">{{ data_source }}</span>
                 </div>
                 <div class="glass-panel px-4 py-2 flex items-center gap-2">
-                    <i data-lucide="hash" class="w-4 h-4 text-slate-400"></i>
-                    <span class="text-sm font-semibold text-slate-300">Run: {{ selected_run }}</span>
+                    <i data-lucide="hash" class="w-4 h-4 text-slate-500"></i>
+                    <span class="text-sm font-semibold text-slate-700">Run: {{ selected_run }}</span>
                 </div>
             </div>
         </header>
 
         <div class="grid grid-cols-1 lg:grid-cols-12 gap-6">
 
-            <aside class="lg:col-span-3 flex flex-col gap-4 max-h-[85vh]">
+            <aside class="lg:col-span-3 flex flex-col gap-4 sidebar-sticky">
                 <div class="glass-panel p-4 flex-1 flex flex-col overflow-hidden">
                     <div class="flex items-center justify-between mb-4 px-2">
                         <h2 class="text-xs font-bold uppercase tracking-widest text-slate-500">Run History</h2>
                         <i data-lucide="history" class="w-4 h-4 text-slate-500"></i>
                     </div>
 
-                    <p class="px-2 text-xs text-slate-400 mb-4">
-                        Pick a run to explore its sustainability story from summary to stage-level impact.
+                    <p class="px-2 text-xs text-slate-500 mb-4">
+                        Pick a run and keep it visible while you scroll.
                     </p>
 
                     <div class="sidebar-scroll overflow-y-auto space-y-2 pr-2">
                         {% for run in runs %}
                         <a href="/?run_id={{ run.run_id }}"
-                           class="block p-3 rounded-xl border border-transparent transition-all hover:border-white/10 hover:bg-white/5 {% if run.run_id == selected_run %}nav-item-active{% endif %}">
+                           class="block p-3 rounded-xl border border-slate-200 transition-all hover:border-emerald-200 hover:bg-emerald-50/60 {% if run.run_id == selected_run %}nav-item-active{% endif %}">
 
                             <div class="flex justify-between items-start mb-2">
-                                <span class="text-sm font-bold text-slate-200 truncate w-2/3">#{{ run.run_id }}</span>
+                                <span class="text-sm font-bold text-slate-800 truncate w-2/3">#{{ run.run_id }}</span>
                                 <span class="text-[10px] px-2 py-0.5 rounded-full font-bold uppercase tracking-tighter {% if run.status == 'success' %}bg-emerald-500/20 text-emerald-400 border border-emerald-500/30{% else %}bg-rose-500/20 text-rose-400 border border-rose-500/30{% endif %}">
                                     {{ run.status }}
                                 </span>
                             </div>
 
-                            <div class="grid grid-cols-2 gap-2 text-[11px] text-slate-400 font-medium">
+                            <div class="grid grid-cols-2 gap-2 text-[11px] text-slate-500 font-medium">
                                 <span class="flex items-center gap-1"><i data-lucide="zap" class="w-3 h-3"></i> {{ run.total_energy_display }}</span>
                                 <span class="flex items-center gap-1"><i data-lucide="clock" class="w-3 h-3"></i> {{ run.duration_display }}</span>
                             </div>
@@ -490,10 +539,10 @@ HTML = """
                 <section class="glass-panel p-6">
                     <div class="flex items-start justify-between gap-4 mb-6">
                         <div>
-                            <p class="text-xs font-bold text-emerald-300 uppercase tracking-[0.2em] mb-2">Overall Sustainability Health</p>
+                            <p class="text-xs font-bold text-emerald-600 uppercase tracking-[0.2em] mb-2">Overall Sustainability Health</p>
                             <h2 class="text-2xl font-extrabold text-white">How sustainable was this run?</h2>
-                            <p class="text-sm text-slate-400 mt-2 max-w-3xl">
-                                Start here for the high-level view. This score combines current resource usage, historical baselines, and anomaly signals into one simple summary.
+                            <p class="text-sm text-slate-600 mt-2 max-w-3xl">
+                                Start here for the high-level view of score, confidence, anomalies, and baseline fit.
                             </p>
                         </div>
                     </div>
@@ -562,10 +611,10 @@ HTML = """
 
                 <section class="glass-panel p-6">
                     <div class="mb-6">
-                        <p class="text-xs font-bold text-emerald-300 uppercase tracking-[0.2em] mb-2">Current Run Summary</p>
+                        <p class="text-xs font-bold text-emerald-600 uppercase tracking-[0.2em] mb-2">Current Run Summary</p>
                         <h2 class="text-2xl font-extrabold text-white">What happened in this run?</h2>
-                        <p class="text-sm text-slate-400 mt-2">
-                            These are the main usage and impact numbers for the selected run, shown in plain units that are easier to scan.
+                        <p class="text-sm text-slate-600 mt-2">
+                            The key usage and duration numbers for the selected run.
                         </p>
                     </div>
 
@@ -598,7 +647,7 @@ HTML = """
                         </div>
                     </div>
 
-                    <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4 mt-4">
+                    <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4 mt-4">
                         <div class="glass-panel p-5">
                             <p class="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Full Stage Duration</p>
                             <p class="text-2xl font-black text-white">{{ full_stage_duration_display }}</p>
@@ -612,12 +661,6 @@ HTML = """
                         </div>
 
                         <div class="glass-panel p-5">
-                            <p class="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Infrastructure Overhead</p>
-                            <p class="text-2xl font-black text-amber-300">{{ infrastructure_overhead_display }}</p>
-                            <p class="text-[10px] text-slate-500 mt-2 font-medium">Full stage duration minus monitored workload duration</p>
-                        </div>
-
-                        <div class="glass-panel p-5">
                             <p class="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Overhead %</p>
                             <p class="text-2xl font-black text-sky-300">{{ overhead_percentage_display }}</p>
                             <p class="text-[10px] text-slate-500 mt-2 font-medium">Share of stage time spent in setup, orchestration, or cleanup</p>
@@ -625,12 +668,12 @@ HTML = """
                     </div>
 
                     <div class="rounded-2xl border border-white/5 bg-slate-950/30 p-5 mt-4">
-                        <div class="grid grid-cols-1 lg:grid-cols-3 gap-4 text-sm text-slate-400">
+                        <div class="grid grid-cols-1 lg:grid-cols-3 gap-4 text-sm text-slate-500">
                             <p><span class="text-slate-200 font-semibold">Workload Duration</span> = time spent executing monitored CI/CD commands.</p>
                             <p><span class="text-slate-200 font-semibold">Full Stage Duration</span> = Jenkins/server-side execution time including orchestration overhead.</p>
-                            <p><span class="text-slate-200 font-semibold">Infrastructure Overhead</span> = full stage duration minus workload duration.</p>
+                            <p><span class="text-slate-200 font-semibold">Overhead %</span> = the share of stage time spent outside the monitored workload.</p>
                         </div>
-                        <p class="text-xs text-slate-500 mt-4">
+                        <p class="text-xs text-slate-500 mt-3">
                             Workload values represent monitored command execution. Full-stage values include captured CI/CD orchestration overhead where available.
                         </p>
                     </div>
@@ -660,8 +703,8 @@ HTML = """
                     <div class="px-6 py-5 border-b border-white/5 bg-white/2">
                         <p class="text-xs font-bold text-emerald-300 uppercase tracking-[0.2em] mb-2">Anomaly Detection</p>
                         <h2 class="text-2xl font-extrabold text-white">Was anything unusual?</h2>
-                        <p class="text-sm text-slate-400 mt-2">
-                            This section highlights stages that were noticeably above their usual energy, carbon, duration, or CPU pattern.
+                        <p class="text-sm text-slate-600 mt-2">
+                            Highlights stages that are above their usual energy, carbon, or timing pattern.
                         </p>
                     </div>
 
@@ -746,8 +789,8 @@ HTML = """
                     <div class="px-6 py-5 border-b border-white/5 bg-white/2">
                         <p class="text-xs font-bold text-emerald-300 uppercase tracking-[0.2em] mb-2">Baseline Comparison</p>
                         <h2 class="text-2xl font-extrabold text-white">How does this compare with normal behavior?</h2>
-                        <p class="text-sm text-slate-400 mt-2">
-                            Each card compares this run with the historical average from earlier runs so you can see whether it was heavier or lighter than normal.
+                        <p class="text-sm text-slate-600 mt-2">
+                            Compare this run with the historical average from earlier runs.
                         </p>
                     </div>
                     <div class="divide-y divide-white/5">
@@ -770,8 +813,8 @@ HTML = """
                     <div>
                         <p class="text-xs font-bold text-emerald-300 uppercase tracking-[0.2em] mb-2">Stage Breakdown and Charts</p>
                         <h2 class="text-2xl font-extrabold text-white">Which stage caused the most impact?</h2>
-                        <p class="text-sm text-slate-400 mt-2">
-                            Use the charts for a quick visual scan, then check the stage table below for the exact values behind them.
+                        <p class="text-sm text-slate-600 mt-2">
+                            Scan the charts first, then use the table for exact stage values.
                         </p>
                     </div>
 
@@ -872,7 +915,7 @@ HTML = """
         const workloadEnergy = {{ workload_energy_values | safe }};
         const avgCpu = {{ cpu_values | safe }};
 
-        const gridColor = "rgba(255, 255, 255, 0.05)";
+        const gridColor = "#e2e8f0";
         const tickColor = "#64748b";
 
         Chart.defaults.font.family = "'Plus Jakarta Sans', sans-serif";
@@ -970,7 +1013,7 @@ def dashboard():
 
     if df.empty:
         return """
-        <div style='background:#020617; color:white; height:100vh; display:flex; align-items:center; justify-content:center; font-family:sans-serif;'>
+        <div style='background:#f8fafc; color:#0f172a; height:100vh; display:flex; align-items:center; justify-content:center; font-family:sans-serif;'>
             <h2>No monitoring data found.</h2>
         </div>
         """
@@ -980,7 +1023,7 @@ def dashboard():
 
     if run_summary.empty:
         return """
-        <div style='background:#020617; color:white; height:100vh; display:flex; align-items:center; justify-content:center; font-family:sans-serif;'>
+        <div style='background:#f8fafc; color:#0f172a; height:100vh; display:flex; align-items:center; justify-content:center; font-family:sans-serif;'>
             <h2>No monitoring data found.</h2>
         </div>
         """
@@ -1152,9 +1195,9 @@ def dashboard():
         phone_charges=phone_charges,
         led_hours=led_hours,
         car_meters=car_meters,
-        phone_charges_display=format_count(phone_charges),
-        led_hours_display=f"{format_count(led_hours)}h",
-        car_meters_display=f"{format_count(car_meters)}m",
+        phone_charges_display=format_equivalent(phone_charges, "", " charges"),
+        led_hours_display=format_equivalent(led_hours, "h", "h"),
+        car_meters_display=format_equivalent(car_meters, "m", "m"),
         stage_count=len(display_rows),
         pipeline_insight=pipeline_insight,
         stage_insight=stage_insight,
