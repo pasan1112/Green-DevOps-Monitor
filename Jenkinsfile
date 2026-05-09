@@ -27,7 +27,7 @@ pipeline {
                 -e MONGO_URI="$MONGO_URI" \
                 -w "$WORKSPACE" \
                 nikolaik/python-nodejs:python3.12-nodejs20 \
-                sh -c "python monitor_runner.py --stage build --run-id $RUN_ID --cmd 'pip install -r requirements.txt && cd real_backend && npm install && npm run build'" \
+                sh -c "pip install -r requirements.txt && python monitor_runner.py --stage build --run-id $RUN_ID --cmd 'pip install -r requirements.txt && cd real_backend && npm install && npm run build'" \
                 > "$MONITOR_OUTPUT" 2>&1
                 STAGE_RC=$?
                 set -e
@@ -46,7 +46,7 @@ pipeline {
                 -e MONGO_URI="$MONGO_URI" \
                 -w "$WORKSPACE" \
                 nikolaik/python-nodejs:python3.12-nodejs20 \
-                sh -c "python monitor_runner.py --stage build --run-id $RUN_ID --workload-duration $WORKLOAD_DURATION --jenkins-stage-duration $STAGE_DURATION --stage-start-timestamp '$STAGE_START_TS' --stage-end-timestamp '$STAGE_END_TS'" || true
+                sh -c "pip install -r requirements.txt && python monitor_runner.py --stage build --run-id $RUN_ID --workload-duration $WORKLOAD_DURATION --jenkins-stage-duration $STAGE_DURATION --stage-start-timestamp '$STAGE_START_TS' --stage-end-timestamp '$STAGE_END_TS'" || true
 
                 rm -f "$MONITOR_OUTPUT"
                 exit $STAGE_RC
@@ -68,7 +68,7 @@ pipeline {
                 -e MONGO_URI="$MONGO_URI" \
                 -w "$WORKSPACE" \
                 nikolaik/python-nodejs:python3.12-nodejs20 \
-                sh -c "python monitor_runner.py --stage test --run-id $RUN_ID --cmd 'pip install -r requirements.txt && cd real_backend && npm test'" \
+                sh -c "pip install -r requirements.txt && python monitor_runner.py --stage test --run-id $RUN_ID --cmd 'pip install -r requirements.txt && cd real_backend && npm test'" \
                 > "$MONITOR_OUTPUT" 2>&1
                 STAGE_RC=$?
                 set -e
@@ -87,7 +87,7 @@ pipeline {
                 -e MONGO_URI="$MONGO_URI" \
                 -w "$WORKSPACE" \
                 nikolaik/python-nodejs:python3.12-nodejs20 \
-                sh -c "python monitor_runner.py --stage test --run-id $RUN_ID --workload-duration $WORKLOAD_DURATION --jenkins-stage-duration $STAGE_DURATION --stage-start-timestamp '$STAGE_START_TS' --stage-end-timestamp '$STAGE_END_TS'" || true
+                sh -c "pip install -r requirements.txt && python monitor_runner.py --stage test --run-id $RUN_ID --workload-duration $WORKLOAD_DURATION --jenkins-stage-duration $STAGE_DURATION --stage-start-timestamp '$STAGE_START_TS' --stage-end-timestamp '$STAGE_END_TS'" || true
 
                 rm -f "$MONITOR_OUTPUT"
                 exit $STAGE_RC
@@ -114,7 +114,7 @@ pipeline {
                 -e APP_PORT="$APP_PORT" \
                 -w "$WORKSPACE" \
                 nikolaik/python-nodejs:python3.12-nodejs20 \
-                sh -c "python monitor_runner.py --stage deploy --run-id $RUN_ID --cmd 'pip install -r requirements.txt && docker build -t $APP_IMAGE ./real_backend && (docker rm -f $APP_CONTAINER || true) && docker run -d --name $APP_CONTAINER -p $APP_PORT:3000 $APP_IMAGE'" \
+                sh -c "pip install -r requirements.txt && python monitor_runner.py --stage deploy --run-id $RUN_ID --cmd 'pip install -r requirements.txt && docker build -t $APP_IMAGE ./real_backend && (docker rm -f $APP_CONTAINER || true) && docker run -d --name $APP_CONTAINER -p $APP_PORT:3000 $APP_IMAGE'" \
                 > "$MONITOR_OUTPUT" 2>&1
                 STAGE_RC=$?
                 set -e
@@ -133,7 +133,7 @@ pipeline {
                 -e MONGO_URI="$MONGO_URI" \
                 -w "$WORKSPACE" \
                 nikolaik/python-nodejs:python3.12-nodejs20 \
-                sh -c "python monitor_runner.py --stage deploy --run-id $RUN_ID --workload-duration $WORKLOAD_DURATION --jenkins-stage-duration $STAGE_DURATION --stage-start-timestamp '$STAGE_START_TS' --stage-end-timestamp '$STAGE_END_TS'" || true
+                sh -c "pip install -r requirements.txt && python monitor_runner.py --stage deploy --run-id $RUN_ID --workload-duration $WORKLOAD_DURATION --jenkins-stage-duration $STAGE_DURATION --stage-start-timestamp '$STAGE_START_TS' --stage-end-timestamp '$STAGE_END_TS'" || true
 
                 rm -f "$MONITOR_OUTPUT"
                 exit $STAGE_RC

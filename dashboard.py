@@ -3,7 +3,6 @@ import json
 import os
 
 import pandas as pd
-from pymongo import MongoClient
 
 from intelligence import (
     calculate_pipeline_baseline,
@@ -37,12 +36,23 @@ NUMERIC_COLS = [
 DEFAULT_STAGE_ORDER = ["build", "test", "deploy"]
 
 
+def get_mongo_client():
+    """Import pymongo lazily so the dashboard can fall back to CSV if the package is unavailable."""
+    try:
+        from pymongo import MongoClient
+    except ImportError:
+        return None
+
+    return MongoClient
+
+
 def load_metrics():
     mongo_uri = os.getenv("MONGO_URI")
+    mongo_client_cls = get_mongo_client()
 
-    if mongo_uri:
+    if mongo_uri and mongo_client_cls is not None:
         try:
-            client = MongoClient(mongo_uri, serverSelectionTimeoutMS=5000)
+            client = mongo_client_cls(mongo_uri, serverSelectionTimeoutMS=5000)
             db = client[MONGO_DB_NAME]
             collection = db[MONGO_COLLECTION_NAME]
             records = list(collection.find({}, {"_id": 0}))

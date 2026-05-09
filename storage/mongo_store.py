@@ -1,15 +1,26 @@
 import os
-from pymongo import MongoClient
+
+
+def _get_mongo_client():
+    """Import pymongo lazily so CSV fallback still works before dependencies are installed."""
+    try:
+        from pymongo import MongoClient
+    except ImportError:
+        print("pymongo is not installed. Skipping MongoDB operations.")
+        return None
+
+    return MongoClient
 
 
 def save_to_mongo(record):
     mongo_uri = os.getenv("MONGO_URI")
+    mongo_client_cls = _get_mongo_client()
 
-    if not mongo_uri:
+    if not mongo_uri or mongo_client_cls is None:
         print("MongoDB not configured. Skipping MongoDB save.")
         return
 
-    client = MongoClient(mongo_uri)
+    client = mongo_client_cls(mongo_uri)
 
     db = client["green_devops_monitor"]
     collection = db["pipeline_metrics"]
@@ -24,12 +35,13 @@ def save_to_mongo(record):
 def update_stage_record(run_id, stage, updates):
     """Update the most recent stage record for a run with extra Jenkins timing metadata."""
     mongo_uri = os.getenv("MONGO_URI")
+    mongo_client_cls = _get_mongo_client()
 
-    if not mongo_uri:
+    if not mongo_uri or mongo_client_cls is None:
         print("MongoDB not configured. Skipping MongoDB update.")
         return False
 
-    client = MongoClient(mongo_uri)
+    client = mongo_client_cls(mongo_uri)
     db = client["green_devops_monitor"]
     collection = db["pipeline_metrics"]
 
