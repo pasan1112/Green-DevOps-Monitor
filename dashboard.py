@@ -149,6 +149,69 @@ def format_change_label(change):
     return f"{sign}{round(change, 1)}%"
 
 
+def format_kwh(value):
+    numeric = 0.0 if value is None or pd.isna(value) else float(value)
+    if numeric == 0:
+        return "0.00000000 kWh"
+    if abs(numeric) < 0.01:
+        return f"{numeric:.8f} kWh"
+    return f"{numeric:.4f} kWh"
+
+
+def format_gco2_from_kg(value):
+    numeric = 0.0 if value is None or pd.isna(value) else float(value)
+    grams = numeric * 1000.0
+    if grams == 0:
+        return "0.000 gCO2"
+    if abs(grams) < 1:
+        return f"{grams:.3f} gCO2"
+    return f"{grams:.2f} gCO2"
+
+
+def format_seconds(value):
+    numeric = 0.0 if value is None or pd.isna(value) else float(value)
+    if numeric >= 60:
+        minutes = int(numeric // 60)
+        seconds = numeric - (minutes * 60)
+        return f"{minutes}m {seconds:.2f}s"
+    return f"{numeric:.2f}s"
+
+
+def format_percent(value):
+    numeric = 0.0 if value is None or pd.isna(value) else float(value)
+    return f"{numeric:.2f}%"
+
+
+def format_count(value):
+    numeric = 0.0 if value is None or pd.isna(value) else float(value)
+    if numeric.is_integer():
+        return f"{int(numeric)}"
+    return f"{numeric:.2f}"
+
+
+def metric_label(metric):
+    labels = {
+        "duration_seconds": "Duration",
+        "total_energy_kwh": "Total energy",
+        "active_energy_kwh": "Active energy",
+        "total_carbon_kg": "Carbon footprint",
+        "avg_cpu_percent": "Average CPU load",
+    }
+    return labels.get(metric, str(metric).replace("_", " ").title())
+
+
+def format_metric_value(metric, value):
+    if metric in {"total_energy_kwh", "active_energy_kwh"}:
+        return format_kwh(value)
+    if metric == "total_carbon_kg":
+        return format_gco2_from_kg(value)
+    if metric == "duration_seconds":
+        return format_seconds(value)
+    if metric == "avg_cpu_percent":
+        return format_percent(value)
+    return format_count(value)
+
+
 def build_comparison_rows(current_run_df, pipeline_baseline):
     comparisons = [
         ("Total Energy", "kWh", "total_energy_kwh"),
@@ -166,6 +229,8 @@ def build_comparison_rows(current_run_df, pipeline_baseline):
                 "unit": unit,
                 "current_value": round(current_value, 4),
                 "baseline_mean": None if baseline_mean is None else round(float(baseline_mean), 4),
+                "current_display": format_metric_value(metric, current_value),
+                "baseline_display": None if baseline_mean is None else format_metric_value(metric, baseline_mean),
                 "change_label": format_change_label(change),
                 "is_above": change is not None and change > 0,
             }
@@ -277,6 +342,10 @@ HTML = """
                         <i data-lucide="history" class="w-4 h-4 text-slate-500"></i>
                     </div>
 
+                    <p class="px-2 text-xs text-slate-400 mb-4">
+                        Pick a run to explore its sustainability story from summary to stage-level impact.
+                    </p>
+
                     <div class="sidebar-scroll overflow-y-auto space-y-2 pr-2">
                         {% for run in runs %}
                         <a href="/?run_id={{ run.run_id }}"
@@ -290,8 +359,8 @@ HTML = """
                             </div>
 
                             <div class="grid grid-cols-2 gap-2 text-[11px] text-slate-400 font-medium">
-                                <span class="flex items-center gap-1"><i data-lucide="zap" class="w-3 h-3"></i> {{ run.total_energy_kwh | round(6) }} kWh</span>
-                                <span class="flex items-center gap-1"><i data-lucide="clock" class="w-3 h-3"></i> {{ run.duration_seconds | round(2) }}s</span>
+                                <span class="flex items-center gap-1"><i data-lucide="zap" class="w-3 h-3"></i> {{ run.total_energy_display }}</span>
+                                <span class="flex items-center gap-1"><i data-lucide="clock" class="w-3 h-3"></i> {{ run.duration_display }}</span>
                             </div>
                         </a>
                         {% endfor %}
@@ -301,209 +370,200 @@ HTML = """
 
             <main class="lg:col-span-9 space-y-6">
 
-                <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-                    <div class="glass-panel p-5 relative overflow-hidden group">
-                        <div class="absolute -right-2 -bottom-2 opacity-5 transition-transform group-hover:scale-110">
-                            <i data-lucide="zap" class="w-24 h-24 text-emerald-400"></i>
-                        </div>
-                        <p class="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Total Energy</p>
-                        <p class="text-3xl font-black text-emerald-400">{{ total_energy }} <span class="text-sm font-normal text-slate-500">kWh</span></p>
-                        <p class="text-[10px] text-slate-500 mt-2 font-medium">Total infrastructure energy estimate</p>
-                    </div>
-
-                    <div class="glass-panel p-5 relative overflow-hidden group">
-                        <div class="absolute -right-2 -bottom-2 opacity-5 transition-transform group-hover:scale-110">
-                            <i data-lucide="cloud" class="w-24 h-24 text-sky-400"></i>
-                        </div>
-                        <p class="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Carbon Footprint</p>
-                        <p class="text-3xl font-black text-sky-400">{{ total_carbon }} <span class="text-sm font-normal text-slate-500">kgCO2e</span></p>
-                        <p class="text-[10px] text-slate-500 mt-2 font-medium">Based on regional grid intensity</p>
-                    </div>
-
-                    <div class="glass-panel p-5 relative overflow-hidden group">
-                        <div class="absolute -right-2 -bottom-2 opacity-5 transition-transform group-hover:scale-110">
-                            <i data-lucide="activity" class="w-24 h-24 text-amber-400"></i>
-                        </div>
-                        <p class="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Avg CPU Load</p>
-                        <p class="text-3xl font-black text-amber-400">{{ avg_cpu }} <span class="text-sm font-normal text-slate-500">%</span></p>
-                        <p class="text-[10px] text-slate-500 mt-2 font-medium">Mean utilization across stages</p>
-                    </div>
-
-                    <div class="glass-panel p-5 relative overflow-hidden group">
-                        <div class="absolute -right-2 -bottom-2 opacity-5 transition-transform group-hover:scale-110">
-                            <i data-lucide="timer" class="w-24 h-24 text-purple-400"></i>
-                        </div>
-                        <p class="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Total Duration</p>
-                        <p class="text-3xl font-black text-purple-400">{{ pipeline_duration }} <span class="text-sm font-normal text-slate-500">s</span></p>
-                        <p class="text-[10px] text-slate-500 mt-2 font-medium">Measured monitored-stage runtime</p>
-                    </div>
-                </div>
-
-                <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
-                    <div class="glass-panel p-5">
-                        <div class="flex items-center justify-between mb-3">
-                            <p class="text-xs font-bold text-slate-400 uppercase tracking-wider">Sustainability Health Score</p>
-                            <i data-lucide="shield-check" class="w-4 h-4 text-emerald-400"></i>
-                        </div>
-                        <p class="text-3xl font-black text-white">{{ health_score.score }}<span class="text-sm font-normal text-slate-500">/100</span></p>
-                        <p class="text-sm font-semibold text-emerald-300 mt-1">{{ health_score.grade }}</p>
-                        <p class="text-[11px] text-slate-500 mt-2">{{ health_score.explanation }}</p>
-                    </div>
-
-                    <div class="glass-panel p-5">
-                        <div class="flex items-center justify-between mb-3">
-                            <p class="text-xs font-bold text-slate-400 uppercase tracking-wider">Monitoring Confidence</p>
-                            <i data-lucide="radar" class="w-4 h-4 text-sky-400"></i>
-                        </div>
-                        <p class="text-3xl font-black text-sky-300">{{ confidence_level }}</p>
-                        <p class="text-sm font-semibold text-slate-300 mt-1">{{ baseline_run_count }} historical run{{ '' if baseline_run_count == 1 else 's' }}</p>
-                        <p class="text-[11px] text-slate-500 mt-2">Historical baseline excludes the selected run when prior runs are available.</p>
-                    </div>
-
-                    <div class="glass-panel p-5">
-                        <div class="flex items-center justify-between mb-3">
-                            <p class="text-xs font-bold text-slate-400 uppercase tracking-wider">Anomaly Status</p>
-                            <i data-lucide="triangle-alert" class="w-4 h-4 {% if anomaly_summary.overall_status == 'Critical' %}text-rose-400{% elif anomaly_summary.overall_status == 'Warning' %}text-amber-400{% else %}text-emerald-400{% endif %}"></i>
-                        </div>
-                        <p class="text-3xl font-black {% if anomaly_summary.overall_status == 'Critical' %}text-rose-300{% elif anomaly_summary.overall_status == 'Warning' %}text-amber-300{% else %}text-emerald-300{% endif %}">{{ anomaly_summary.overall_status }}</p>
-                        <p class="text-sm font-semibold text-slate-300 mt-1">{{ anomaly_summary.critical_count }} critical / {{ anomaly_summary.warning_count }} warning</p>
-                        <p class="text-[11px] text-slate-500 mt-2">{{ anomaly_summary.summary_message }}</p>
-                    </div>
-
-                    <div class="glass-panel p-5">
-                        <div class="flex items-center justify-between mb-3">
-                            <p class="text-xs font-bold text-slate-400 uppercase tracking-wider">Baseline Comparison</p>
-                            <i data-lucide="scale" class="w-4 h-4 text-purple-400"></i>
-                        </div>
-                        <p class="text-sm font-semibold text-slate-200">Energy {{ comparison_rows[0].change_label }}</p>
-                        <p class="text-sm font-semibold text-slate-200 mt-1">Carbon {{ comparison_rows[1].change_label }}</p>
-                        <p class="text-sm font-semibold text-slate-200 mt-1">Duration {{ comparison_rows[2].change_label }}</p>
-                        <p class="text-[11px] text-slate-500 mt-2">Current run versus historical pipeline mean.</p>
-                    </div>
-                </div>
-
-                <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
-                    <div class="glass-panel p-5">
-                        <p class="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Phone Charge Equivalent</p>
-                        <p class="text-2xl font-black text-emerald-300">{{ phone_charges }}</p>
-                        <p class="text-xs text-slate-500 mt-2">Approx. smartphone charges</p>
-                    </div>
-
-                    <div class="glass-panel p-5">
-                        <p class="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">LED Bulb Equivalent</p>
-                        <p class="text-2xl font-black text-amber-300">{{ led_hours }}h</p>
-                        <p class="text-xs text-slate-500 mt-2">Approx. 10W LED bulb runtime</p>
-                    </div>
-
-                    <div class="glass-panel p-5">
-                        <p class="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Driving Equivalent</p>
-                        <p class="text-2xl font-black text-sky-300">{{ car_meters }}m</p>
-                        <p class="text-xs text-slate-500 mt-2">Approx. average petrol car distance</p>
-                    </div>
-                </div>
-
-                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div class="bg-emerald-500/5 border border-emerald-500/20 rounded-2xl p-5 flex gap-4">
-                        <div class="mt-1"><i data-lucide="info" class="w-5 h-5 text-emerald-400"></i></div>
+                <section class="glass-panel p-6">
+                    <div class="flex items-start justify-between gap-4 mb-6">
                         <div>
-                            <h4 class="text-sm font-bold text-emerald-300 mb-1">Pipeline Sustainability</h4>
-                            <p class="text-xs text-emerald-100/70 leading-relaxed">{{ pipeline_insight }}</p>
+                            <p class="text-xs font-bold text-emerald-300 uppercase tracking-[0.2em] mb-2">Overall Sustainability Health</p>
+                            <h2 class="text-2xl font-extrabold text-white">How sustainable was this run?</h2>
+                            <p class="text-sm text-slate-400 mt-2 max-w-3xl">
+                                Start here for the high-level view. This score combines current resource usage, historical baselines, and anomaly signals into one simple summary.
+                            </p>
                         </div>
                     </div>
 
-                    <div class="bg-sky-500/5 border border-sky-500/20 rounded-2xl p-5 flex gap-4">
-                        <div class="mt-1"><i data-lucide="bar-chart-3" class="w-5 h-5 text-sky-400"></i></div>
-                        <div>
-                            <h4 class="text-sm font-bold text-sky-300 mb-1">Stage Dynamics</h4>
-                            <p class="text-xs text-sky-100/70 leading-relaxed">{{ stage_insight }}</p>
-                        </div>
-                    </div>
-                </div>
-
-                <div class="grid grid-cols-1 xl:grid-cols-2 gap-6">
-                    <div class="glass-panel overflow-hidden">
-                        <div class="px-6 py-4 border-b border-white/5 flex items-center justify-between bg-white/2">
-                            <h3 class="text-sm font-bold text-slate-200 uppercase tracking-wider">Baseline Comparison</h3>
-                            <span class="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Current vs Historical Mean</span>
-                        </div>
-                        <div class="divide-y divide-white/5">
-                            {% for item in comparison_rows %}
-                            <div class="px-6 py-4 flex items-center justify-between gap-4">
-                                <div>
-                                    <p class="text-sm font-bold text-slate-200">{{ item.label }}</p>
-                                    <p class="text-[11px] text-slate-500">Baseline {% if item.baseline_mean is not none %}{{ item.baseline_mean }} {{ item.unit }}{% else %}Unavailable{% endif %}</p>
-                                </div>
-                                <div class="text-right">
-                                    <p class="text-sm font-bold text-white">{{ item.current_value }} {{ item.unit }}</p>
-                                    <p class="text-[11px] font-semibold {% if item.change_label == 'Baseline unavailable' %}text-slate-500{% elif item.is_above %}text-amber-300{% else %}text-emerald-300{% endif %}">{{ item.change_label }}</p>
-                                </div>
+                    <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
+                        <div class="glass-panel p-5">
+                            <div class="flex items-center justify-between mb-3">
+                                <p class="text-xs font-bold text-slate-400 uppercase tracking-wider">Sustainability Health Score</p>
+                                <i data-lucide="shield-check" class="w-4 h-4 text-emerald-400"></i>
                             </div>
-                            {% endfor %}
+                            <p class="text-3xl font-black text-white">{{ health_score.score }}<span class="text-sm font-normal text-slate-500">/100</span></p>
+                            <p class="text-sm font-semibold text-emerald-300 mt-1">{{ health_score.grade }}</p>
+                            <p class="text-[11px] text-slate-500 mt-2">{{ health_score.explanation }}</p>
+                        </div>
+
+                        <div class="glass-panel p-5">
+                            <div class="flex items-center justify-between mb-3">
+                                <p class="text-xs font-bold text-slate-400 uppercase tracking-wider">Monitoring Confidence</p>
+                                <i data-lucide="radar" class="w-4 h-4 text-sky-400"></i>
+                            </div>
+                            <p class="text-3xl font-black text-sky-300">{{ confidence_level }}</p>
+                            <p class="text-sm font-semibold text-slate-300 mt-1">{{ baseline_run_count }} historical run{{ '' if baseline_run_count == 1 else 's' }}</p>
+                            <p class="text-[11px] text-slate-500 mt-2">The baseline excludes this run when earlier runs are available, so the comparison stays fair.</p>
+                        </div>
+
+                        <div class="glass-panel p-5">
+                            <div class="flex items-center justify-between mb-3">
+                                <p class="text-xs font-bold text-slate-400 uppercase tracking-wider">Anomaly Status</p>
+                                <i data-lucide="triangle-alert" class="w-4 h-4 {% if anomaly_summary.overall_status == 'Critical' %}text-rose-400{% elif anomaly_summary.overall_status == 'Warning' %}text-amber-400{% else %}text-emerald-400{% endif %}"></i>
+                            </div>
+                            <p class="text-3xl font-black {% if anomaly_summary.overall_status == 'Critical' %}text-rose-300{% elif anomaly_summary.overall_status == 'Warning' %}text-amber-300{% else %}text-emerald-300{% endif %}">{{ anomaly_summary.overall_status }}</p>
+                            <p class="text-sm font-semibold text-slate-300 mt-1">{{ anomaly_summary.critical_count }} critical / {{ anomaly_summary.warning_count }} warning</p>
+                            <p class="text-[11px] text-slate-500 mt-2">{{ anomaly_summary.summary_message }}</p>
+                        </div>
+
+                        <div class="glass-panel p-5">
+                            <div class="flex items-center justify-between mb-3">
+                                <p class="text-xs font-bold text-slate-400 uppercase tracking-wider">Baseline Snapshot</p>
+                                <i data-lucide="scale" class="w-4 h-4 text-purple-400"></i>
+                            </div>
+                            <p class="text-sm font-semibold text-slate-200">Energy {{ comparison_rows[0].change_label }}</p>
+                            <p class="text-sm font-semibold text-slate-200 mt-1">Carbon {{ comparison_rows[1].change_label }}</p>
+                            <p class="text-sm font-semibold text-slate-200 mt-1">Duration {{ comparison_rows[2].change_label }}</p>
+                            <p class="text-[11px] text-slate-500 mt-2">A quick look at whether this run is lighter or heavier than normal.</p>
                         </div>
                     </div>
 
-                    <div class="glass-panel overflow-hidden">
-                        <div class="px-6 py-4 border-b border-white/5 flex items-center justify-between bg-white/2">
-                            <h3 class="text-sm font-bold text-slate-200 uppercase tracking-wider">Top Anomalies</h3>
-                            <span class="text-[10px] font-bold text-slate-500 uppercase tracking-widest">{{ anomaly_list|length }} Flagged</span>
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
+                        <div class="bg-emerald-500/5 border border-emerald-500/20 rounded-2xl p-5 flex gap-4">
+                            <div class="mt-1"><i data-lucide="info" class="w-5 h-5 text-emerald-400"></i></div>
+                            <div>
+                                <h4 class="text-sm font-bold text-emerald-300 mb-1">What this means</h4>
+                                <p class="text-xs text-emerald-100/70 leading-relaxed">{{ pipeline_insight }}</p>
+                            </div>
                         </div>
-                        <div class="p-6 space-y-3">
-                            {% if anomaly_list %}
-                                {% for anomaly in anomaly_list[:3] %}
-                                <div class="rounded-xl border {% if anomaly.severity == 'critical' %}border-rose-500/25 bg-rose-500/5{% else %}border-amber-500/25 bg-amber-500/5{% endif %} p-4">
-                                    <p class="text-sm font-semibold {% if anomaly.severity == 'critical' %}text-rose-300{% else %}text-amber-300{% endif %}">{{ anomaly.message }}</p>
-                                    <p class="text-[11px] text-slate-400 mt-1">
-                                        Current {{ anomaly.current_value }}, baseline {{ anomaly.baseline_mean }}, z-score {{ anomaly.z_score if anomaly.z_score is not none else 'N/A' }}
-                                    </p>
-                                </div>
-                                {% endfor %}
-                            {% else %}
-                                <div class="rounded-xl border border-emerald-500/20 bg-emerald-500/5 p-4">
-                                    <p class="text-sm font-semibold text-emerald-300">No warning or critical anomalies detected for this run.</p>
-                                    <p class="text-[11px] text-slate-500 mt-1">Historical comparisons will get stronger as more runs are collected.</p>
-                                </div>
-                            {% endif %}
+
+                        <div class="bg-sky-500/5 border border-sky-500/20 rounded-2xl p-5 flex gap-4">
+                            <div class="mt-1"><i data-lucide="bar-chart-3" class="w-5 h-5 text-sky-400"></i></div>
+                            <div>
+                                <h4 class="text-sm font-bold text-sky-300 mb-1">What to watch next</h4>
+                                <p class="text-xs text-sky-100/70 leading-relaxed">{{ stage_insight }}</p>
+                            </div>
                         </div>
                     </div>
-                </div>
+                </section>
 
-                <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                    <div class="glass-panel p-6">
-                        <div class="flex items-center justify-between mb-6">
-                            <h3 class="text-sm font-bold text-slate-200 uppercase tracking-wider">Energy Consumption by Stage</h3>
-                            <i data-lucide="zap" class="w-4 h-4 text-emerald-400"></i>
+                <section class="glass-panel p-6">
+                    <div class="mb-6">
+                        <p class="text-xs font-bold text-emerald-300 uppercase tracking-[0.2em] mb-2">Current Run Summary</p>
+                        <h2 class="text-2xl font-extrabold text-white">What happened in this run?</h2>
+                        <p class="text-sm text-slate-400 mt-2">
+                            These are the main usage and impact numbers for the selected run, shown in plain units that are easier to scan.
+                        </p>
+                    </div>
+
+                    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                        <div class="glass-panel p-5 relative overflow-hidden group">
+                            <div class="absolute -right-2 -bottom-2 opacity-5 transition-transform group-hover:scale-110">
+                                <i data-lucide="zap" class="w-24 h-24 text-emerald-400"></i>
+                            </div>
+                            <p class="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Total Energy</p>
+                            <p class="text-3xl font-black text-emerald-400">{{ total_energy_display }}</p>
+                            <p class="text-[10px] text-slate-500 mt-2 font-medium">Estimated infrastructure energy used by this run</p>
                         </div>
-                        <div class="h-[250px]">
-                            <canvas id="energyChart"></canvas>
+
+                        <div class="glass-panel p-5 relative overflow-hidden group">
+                            <div class="absolute -right-2 -bottom-2 opacity-5 transition-transform group-hover:scale-110">
+                                <i data-lucide="cloud" class="w-24 h-24 text-sky-400"></i>
+                            </div>
+                            <p class="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Carbon Footprint</p>
+                            <p class="text-3xl font-black text-sky-400">{{ total_carbon_display }}</p>
+                            <p class="text-[10px] text-slate-500 mt-2 font-medium">Displayed in grams for easier reading</p>
+                        </div>
+
+                        <div class="glass-panel p-5 relative overflow-hidden group">
+                            <div class="absolute -right-2 -bottom-2 opacity-5 transition-transform group-hover:scale-110">
+                                <i data-lucide="activity" class="w-24 h-24 text-amber-400"></i>
+                            </div>
+                            <p class="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Avg CPU Load</p>
+                            <p class="text-3xl font-black text-amber-400">{{ avg_cpu_display }}</p>
+                            <p class="text-[10px] text-slate-500 mt-2 font-medium">Average compute utilization across all tracked stages</p>
+                        </div>
+
+                        <div class="glass-panel p-5 relative overflow-hidden group">
+                            <div class="absolute -right-2 -bottom-2 opacity-5 transition-transform group-hover:scale-110">
+                                <i data-lucide="timer" class="w-24 h-24 text-purple-400"></i>
+                            </div>
+                            <p class="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Total Duration</p>
+                            <p class="text-3xl font-black text-purple-400">{{ pipeline_duration_display }}</p>
+                            <p class="text-[10px] text-slate-500 mt-2 font-medium">Total monitored runtime for the selected run</p>
                         </div>
                     </div>
 
-                    <div class="glass-panel p-6">
-                        <div class="flex items-center justify-between mb-6">
-                            <h3 class="text-sm font-bold text-slate-200 uppercase tracking-wider">CPU Utilization Profile</h3>
-                            <i data-lucide="cpu" class="w-4 h-4 text-amber-400"></i>
+                    <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mt-4">
+                        <div class="glass-panel p-5">
+                            <p class="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Phone Charge Equivalent</p>
+                            <p class="text-2xl font-black text-emerald-300">{{ phone_charges_display }}</p>
+                            <p class="text-xs text-slate-500 mt-2">Approximate smartphone charges from the same energy use</p>
                         </div>
-                        <div class="h-[250px]">
-                            <canvas id="cpuChart"></canvas>
+
+                        <div class="glass-panel p-5">
+                            <p class="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">LED Bulb Equivalent</p>
+                            <p class="text-2xl font-black text-amber-300">{{ led_hours_display }}</p>
+                            <p class="text-xs text-slate-500 mt-2">Approximate runtime for a 10W LED bulb</p>
+                        </div>
+
+                        <div class="glass-panel p-5">
+                            <p class="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Driving Equivalent</p>
+                            <p class="text-2xl font-black text-sky-300">{{ car_meters_display }}</p>
+                            <p class="text-xs text-slate-500 mt-2">Approximate petrol car travel for the same carbon impact</p>
                         </div>
                     </div>
-                </div>
+                </section>
 
-                <div class="glass-panel overflow-hidden">
-                    <div class="px-6 py-4 border-b border-white/5 flex items-center justify-between bg-white/2">
-                        <h3 class="text-sm font-bold text-slate-200 uppercase tracking-wider">Anomalies Detail</h3>
-                        <span class="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Explainable Detection</span>
+                <section class="glass-panel overflow-hidden">
+                    <div class="px-6 py-5 border-b border-white/5 bg-white/2">
+                        <p class="text-xs font-bold text-emerald-300 uppercase tracking-[0.2em] mb-2">Anomaly Detection</p>
+                        <h2 class="text-2xl font-extrabold text-white">Was anything unusual?</h2>
+                        <p class="text-sm text-slate-400 mt-2">
+                            This section highlights stages that were noticeably above their usual energy, carbon, duration, or CPU pattern.
+                        </p>
                     </div>
 
-                    <div class="overflow-x-auto">
+                    <div class="grid grid-cols-1 xl:grid-cols-2 gap-6 p-6">
+                        <div>
+                            <div class="flex items-center justify-between mb-4">
+                                <h3 class="text-sm font-bold text-slate-200 uppercase tracking-wider">Top Anomalies</h3>
+                                <span class="text-[10px] font-bold text-slate-500 uppercase tracking-widest">{{ anomaly_list|length }} Flagged</span>
+                            </div>
+                            <div class="space-y-3">
+                                {% if anomaly_list %}
+                                    {% for anomaly in anomaly_list[:3] %}
+                                    <div class="rounded-xl border {% if anomaly.severity == 'critical' %}border-rose-500/25 bg-rose-500/5{% else %}border-amber-500/25 bg-amber-500/5{% endif %} p-4">
+                                        <p class="text-sm font-semibold {% if anomaly.severity == 'critical' %}text-rose-300{% else %}text-amber-300{% endif %}">{{ anomaly.message }}</p>
+                                        <p class="text-[11px] text-slate-400 mt-1">
+                                            Current {{ anomaly.current_display }}, usual {{ anomaly.baseline_display }}, z-score {{ anomaly.z_score_display }}
+                                        </p>
+                                    </div>
+                                    {% endfor %}
+                                {% else %}
+                                    <div class="rounded-xl border border-emerald-500/20 bg-emerald-500/5 p-4">
+                                        <p class="text-sm font-semibold text-emerald-300">No warning or critical anomalies detected for this run.</p>
+                                        <p class="text-[11px] text-slate-500 mt-1">The current run stayed within normal stage-level behavior.</p>
+                                    </div>
+                                {% endif %}
+                            </div>
+                        </div>
+
+                        <div class="rounded-2xl border border-white/5 bg-slate-950/30 p-5">
+                            <h3 class="text-sm font-bold text-slate-200 uppercase tracking-wider mb-3">How to read this</h3>
+                            <div class="space-y-3 text-sm text-slate-400">
+                                <p><span class="text-slate-200 font-semibold">Critical</span> means a stage moved far above normal and likely deserves investigation.</p>
+                                <p><span class="text-slate-200 font-semibold">Warning</span> means the stage was higher than expected, but the signal is less severe.</p>
+                                <p><span class="text-slate-200 font-semibold">Z-score</span> shows how far the run is from normal behavior. Bigger positive values mean a larger deviation.</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="overflow-x-auto border-t border-white/5">
                         <table class="w-full text-left">
                             <thead>
                                 <tr class="text-[11px] font-bold text-slate-400 uppercase tracking-wider bg-slate-900/40">
                                     <th class="px-6 py-4">Stage</th>
                                     <th class="px-6 py-4">Metric</th>
                                     <th class="px-6 py-4">Current</th>
-                                    <th class="px-6 py-4">Baseline</th>
-                                    <th class="px-6 py-4">% Change</th>
+                                    <th class="px-6 py-4">Usual</th>
+                                    <th class="px-6 py-4">Change</th>
                                     <th class="px-6 py-4">Z-Score</th>
                                     <th class="px-6 py-4 text-right">Severity</th>
                                 </tr>
@@ -513,12 +573,12 @@ HTML = """
                                 {% if anomaly_list %}
                                     {% for anomaly in anomaly_list %}
                                     <tr class="hover:bg-white/5 transition-colors">
-                                        <td class="px-6 py-4 text-slate-200 font-semibold">{{ anomaly.stage }}</td>
-                                        <td class="px-6 py-4 text-slate-300">{{ anomaly.metric }}</td>
-                                        <td class="px-6 py-4 text-white">{{ anomaly.current_value }}</td>
-                                        <td class="px-6 py-4 text-slate-300">{{ anomaly.baseline_mean }}</td>
-                                        <td class="px-6 py-4 text-slate-300">{{ anomaly.percentage_change if anomaly.percentage_change is not none else 'N/A' }}</td>
-                                        <td class="px-6 py-4 text-slate-300">{{ anomaly.z_score if anomaly.z_score is not none else 'N/A' }}</td>
+                                        <td class="px-6 py-4 text-slate-200 font-semibold">{{ anomaly.stage_label }}</td>
+                                        <td class="px-6 py-4 text-slate-300">{{ anomaly.metric_label }}</td>
+                                        <td class="px-6 py-4 text-white">{{ anomaly.current_display }}</td>
+                                        <td class="px-6 py-4 text-slate-300">{{ anomaly.baseline_display }}</td>
+                                        <td class="px-6 py-4 text-slate-300">{{ anomaly.percentage_change_display }}</td>
+                                        <td class="px-6 py-4 text-slate-300">{{ anomaly.z_score_display }}</td>
                                         <td class="px-6 py-4 text-right">
                                             <span class="text-[10px] px-2 py-0.5 rounded-full font-bold uppercase {% if anomaly.severity == 'critical' %}text-rose-300 bg-rose-500/10{% else %}text-amber-300 bg-amber-500/10{% endif %}">
                                                 {{ anomaly.severity }}
@@ -534,62 +594,118 @@ HTML = """
                             </tbody>
                         </table>
                     </div>
-                </div>
+                </section>
 
-                <div class="glass-panel overflow-hidden">
-                    <div class="px-6 py-4 border-b border-white/5 flex items-center justify-between bg-white/2">
-                        <h3 class="text-sm font-bold text-slate-200 uppercase tracking-wider">Stage Breakdown</h3>
-                        <span class="text-[10px] font-bold text-slate-500 uppercase tracking-widest">{{ stage_count }} Stages Tracked</span>
+                <section class="glass-panel overflow-hidden">
+                    <div class="px-6 py-5 border-b border-white/5 bg-white/2">
+                        <p class="text-xs font-bold text-emerald-300 uppercase tracking-[0.2em] mb-2">Baseline Comparison</p>
+                        <h2 class="text-2xl font-extrabold text-white">How does this compare with normal behavior?</h2>
+                        <p class="text-sm text-slate-400 mt-2">
+                            Each card compares this run with the historical average from earlier runs so you can see whether it was heavier or lighter than normal.
+                        </p>
+                    </div>
+                    <div class="divide-y divide-white/5">
+                        {% for item in comparison_rows %}
+                        <div class="px-6 py-5 flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+                            <div>
+                                <p class="text-sm font-bold text-slate-200">{{ item.label }}</p>
+                                <p class="text-[11px] text-slate-500">Historical average: {% if item.baseline_display is not none %}{{ item.baseline_display }}{% else %}Unavailable{% endif %}</p>
+                            </div>
+                            <div class="text-left md:text-right">
+                                <p class="text-sm font-bold text-white">{{ item.current_display }}</p>
+                                <p class="text-[11px] font-semibold {% if item.change_label == 'Baseline unavailable' %}text-slate-500{% elif item.is_above %}text-amber-300{% else %}text-emerald-300{% endif %}">{{ item.change_label }}</p>
+                            </div>
+                        </div>
+                        {% endfor %}
+                    </div>
+                </section>
+
+                <section class="space-y-6">
+                    <div>
+                        <p class="text-xs font-bold text-emerald-300 uppercase tracking-[0.2em] mb-2">Stage Breakdown and Charts</p>
+                        <h2 class="text-2xl font-extrabold text-white">Which stage caused the most impact?</h2>
+                        <p class="text-sm text-slate-400 mt-2">
+                            Use the charts for a quick visual scan, then check the stage table below for the exact values behind them.
+                        </p>
                     </div>
 
-                    <div class="overflow-x-auto">
-                        <table class="w-full text-left">
-                            <thead>
-                                <tr class="text-[11px] font-bold text-slate-400 uppercase tracking-wider bg-slate-900/40">
-                                    <th class="px-6 py-4">Stage</th>
-                                    <th class="px-6 py-4 text-center">Status</th>
-                                    <th class="px-6 py-4">Duration</th>
-                                    <th class="px-6 py-4">Avg CPU</th>
-                                    <th class="px-6 py-4">Energy</th>
-                                    <th class="px-6 py-4 text-right">Carbon</th>
-                                </tr>
-                            </thead>
+                    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                        <div class="glass-panel p-6">
+                            <div class="flex items-center justify-between mb-6">
+                                <h3 class="text-sm font-bold text-slate-200 uppercase tracking-wider">Energy Consumption by Stage</h3>
+                                <i data-lucide="zap" class="w-4 h-4 text-emerald-400"></i>
+                            </div>
+                            <div class="h-[250px]">
+                                <canvas id="energyChart"></canvas>
+                            </div>
+                        </div>
 
-                            <tbody class="divide-y divide-white/5">
-                                {% for row in rows %}
-                                <tr class="hover:bg-white/5 transition-colors group">
-                                    <td class="px-6 py-4">
-                                        <div class="flex items-center gap-3">
-                                            <div class="w-2 h-2 rounded-full bg-emerald-500 group-hover:scale-125 transition-transform"></div>
-                                            <span class="font-bold text-slate-200">{{ row.stage }}</span>
-                                        </div>
-                                    </td>
+                        <div class="glass-panel p-6">
+                            <div class="flex items-center justify-between mb-6">
+                                <h3 class="text-sm font-bold text-slate-200 uppercase tracking-wider">CPU Utilization Profile</h3>
+                                <i data-lucide="cpu" class="w-4 h-4 text-amber-400"></i>
+                            </div>
+                            <div class="h-[250px]">
+                                <canvas id="cpuChart"></canvas>
+                            </div>
+                        </div>
+                    </div>
 
-                                    <td class="px-6 py-4 text-center">
-                                        <span class="text-[10px] px-2 py-0.5 rounded-full font-bold uppercase {% if row.status == 'success' %}text-emerald-400 bg-emerald-500/10{% else %}text-rose-400 bg-rose-500/10{% endif %}">
-                                            {{ row.status }}
-                                        </span>
-                                    </td>
+                    <div class="glass-panel overflow-hidden">
+                        <div class="px-6 py-4 border-b border-white/5 flex items-center justify-between bg-white/2">
+                            <h3 class="text-sm font-bold text-slate-200 uppercase tracking-wider">Stage Breakdown</h3>
+                            <span class="text-[10px] font-bold text-slate-500 uppercase tracking-widest">{{ stage_count }} Stages Tracked</span>
+                        </div>
 
-                                    <td class="px-6 py-4 text-slate-300 font-medium">{{ row.duration_seconds }}s</td>
+                        <div class="overflow-x-auto">
+                            <table class="w-full text-left">
+                                <thead>
+                                    <tr class="text-[11px] font-bold text-slate-400 uppercase tracking-wider bg-slate-900/40">
+                                        <th class="px-6 py-4">Stage</th>
+                                        <th class="px-6 py-4 text-center">Status</th>
+                                        <th class="px-6 py-4">Duration</th>
+                                        <th class="px-6 py-4">Avg CPU</th>
+                                        <th class="px-6 py-4">Energy</th>
+                                        <th class="px-6 py-4 text-right">Carbon</th>
+                                    </tr>
+                                </thead>
 
-                                    <td class="px-6 py-4">
-                                        <div class="flex items-center gap-2">
-                                            <span class="text-slate-300">{{ row.avg_cpu_percent }}%</span>
-                                            <div class="flex-1 w-12 h-1 bg-slate-800 rounded-full overflow-hidden">
-                                                <div class="h-full bg-amber-500/60" style="width: {{ row.avg_cpu_percent }}%"></div>
+                                <tbody class="divide-y divide-white/5">
+                                    {% for row in rows %}
+                                    <tr class="hover:bg-white/5 transition-colors group">
+                                        <td class="px-6 py-4">
+                                            <div class="flex items-center gap-3">
+                                                <div class="w-2 h-2 rounded-full bg-emerald-500 group-hover:scale-125 transition-transform"></div>
+                                                <span class="font-bold text-slate-200">{{ row.stage_label }}</span>
                                             </div>
-                                        </div>
-                                    </td>
+                                        </td>
 
-                                    <td class="px-6 py-4 text-emerald-400 font-mono text-sm">{{ row.total_energy_kwh }} kWh</td>
-                                    <td class="px-6 py-4 text-right text-sky-400 font-mono text-sm">{{ row.total_carbon_kg }} kg</td>
-                                </tr>
-                                {% endfor %}
-                            </tbody>
-                        </table>
+                                        <td class="px-6 py-4 text-center">
+                                            <span class="text-[10px] px-2 py-0.5 rounded-full font-bold uppercase {% if row.status == 'success' %}text-emerald-400 bg-emerald-500/10{% else %}text-rose-400 bg-rose-500/10{% endif %}">
+                                                {{ row.status }}
+                                            </span>
+                                        </td>
+
+                                        <td class="px-6 py-4 text-slate-300 font-medium">{{ row.duration_display }}</td>
+
+                                        <td class="px-6 py-4">
+                                            <div class="flex items-center gap-2">
+                                                <span class="text-slate-300">{{ row.avg_cpu_display }}</span>
+                                                <div class="flex-1 w-12 h-1 bg-slate-800 rounded-full overflow-hidden">
+                                                    <div class="h-full bg-amber-500/60" style="width: {{ row.avg_cpu_percent }}%"></div>
+                                                </div>
+                                            </div>
+                                        </td>
+
+                                        <td class="px-6 py-4 text-emerald-400 font-mono text-sm">{{ row.total_energy_display }}</td>
+                                        <td class="px-6 py-4 text-right text-sky-400 font-mono text-sm">{{ row.total_carbon_display }}</td>
+                                    </tr>
+                                    {% endfor %}
+                                </tbody>
+                            </table>
+                        </div>
                     </div>
-                </div>
+                </section>
 
                 <footer class="text-center text-slate-500 text-[10px] uppercase tracking-[0.2em] pt-4 border-t border-white/5">
                     Pipeline Engine v2.5 | MongoDB-backed monitoring active | Refreshes every 15s
@@ -760,23 +876,46 @@ def dashboard():
 
     anomaly_teaser = anomalies[0]["message"] if anomalies else "No warning or critical anomalies were detected."
     pipeline_insight = (
-        f"Run {selected_run} used {total_energy} kWh and emitted {total_carbon} kgCO2e. "
+        f"Run {selected_run} used {format_kwh(total_energy)} and emitted {format_gco2_from_kg(total_carbon)}. "
         f"Health score: {health_score['score']}/100 ({health_score['grade']}). {anomaly_teaser}"
     )
 
     stage_insight = (
-        f"The {highest_active_stage} stage had the highest active compute demand, while "
-        f"{highest_total_stage} had the largest total energy footprint. Monitoring confidence is {confidence_level.lower()} "
+        f"The {str(highest_active_stage).replace('_', ' ').title()} stage had the highest active compute demand, while "
+        f"{str(highest_total_stage).replace('_', ' ').title()} had the largest total energy footprint. Monitoring confidence is {confidence_level.lower()} "
         f"based on {baseline_run_count} historical run(s)."
     )
 
-    display_rows = current_run_df.copy()
-    for col in NUMERIC_COLS:
-        display_rows[col] = display_rows[col].round(8)
+    stage_status = (
+        current_run_df.groupby("stage", observed=True)["status"]
+        .agg(lambda x: "failed" if x.astype(str).str.lower().eq("failed").any() else "success")
+        .reset_index()
+    )
+    display_rows = summary.merge(stage_status, on="stage", how="left")
+    display_rows["stage_label"] = display_rows["stage"].astype(str).str.replace("_", " ").str.title()
+    display_rows["duration_display"] = display_rows["duration_seconds"].apply(format_seconds)
+    display_rows["avg_cpu_display"] = display_rows["avg_cpu_percent"].apply(format_percent)
+    display_rows["total_energy_display"] = display_rows["total_energy_kwh"].apply(format_kwh)
+    display_rows["total_carbon_display"] = display_rows["total_carbon_kg"].apply(format_gco2_from_kg)
 
-    run_summary["total_energy_kwh"] = run_summary["total_energy_kwh"].round(8)
-    run_summary["total_carbon_kg"] = run_summary["total_carbon_kg"].round(8)
-    run_summary["duration_seconds"] = run_summary["duration_seconds"].round(2)
+    run_summary["total_energy_display"] = run_summary["total_energy_kwh"].apply(format_kwh)
+    run_summary["total_carbon_display"] = run_summary["total_carbon_kg"].apply(format_gco2_from_kg)
+    run_summary["duration_display"] = run_summary["duration_seconds"].apply(format_seconds)
+
+    formatted_anomalies = []
+    for anomaly in anomalies:
+        formatted_anomaly = dict(anomaly)
+        formatted_anomaly["stage_label"] = str(anomaly["stage"]).replace("_", " ").title()
+        formatted_anomaly["metric_label"] = metric_label(anomaly["metric"])
+        formatted_anomaly["current_display"] = format_metric_value(anomaly["metric"], anomaly["current_value"])
+        formatted_anomaly["baseline_display"] = format_metric_value(anomaly["metric"], anomaly["baseline_mean"])
+        formatted_anomaly["percentage_change_display"] = (
+            format_percent(anomaly["percentage_change"]) if anomaly["percentage_change"] is not None else "N/A"
+        )
+        formatted_anomaly["z_score_display"] = (
+            f"{float(anomaly['z_score']):.2f}" if anomaly["z_score"] is not None else "N/A"
+        )
+        formatted_anomalies.append(formatted_anomaly)
 
     return render_template_string(
         HTML,
@@ -788,10 +927,18 @@ def dashboard():
         total_carbon=total_carbon,
         pipeline_duration=pipeline_duration,
         avg_cpu=avg_cpu,
+        total_energy_display=format_kwh(total_energy),
+        active_energy_display=format_kwh(active_energy),
+        total_carbon_display=format_gco2_from_kg(total_carbon),
+        pipeline_duration_display=format_seconds(pipeline_duration),
+        avg_cpu_display=format_percent(avg_cpu),
         phone_charges=phone_charges,
         led_hours=led_hours,
         car_meters=car_meters,
-        stage_count=len(current_run_df),
+        phone_charges_display=format_count(phone_charges),
+        led_hours_display=f"{format_count(led_hours)}h",
+        car_meters_display=f"{format_count(car_meters)}m",
+        stage_count=len(display_rows),
         pipeline_insight=pipeline_insight,
         stage_insight=stage_insight,
         rows=display_rows.to_dict(orient="records"),
@@ -804,7 +951,7 @@ def dashboard():
         baseline_run_count=baseline_run_count,
         anomaly_summary=anomaly_summary,
         comparison_rows=comparison_rows,
-        anomaly_list=anomalies,
+        anomaly_list=formatted_anomalies,
     )
 
 
