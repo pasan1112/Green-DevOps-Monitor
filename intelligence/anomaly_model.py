@@ -1,0 +1,152 @@
+"""Explainable anomaly detection for stage-level sustainability metrics."""
+
+from __future__ import annotations
+
+from typing import Dict, List
+
+import pandas as pd
+
+
+ANOMALY_METRICS = [
+    "duration_seconds",
+    "total_energy_kwh",
+    "active_energy_kwh",
+    "total_carbon_kg",
+    "avg_cpu_percent",
+]
+
+
+def detect_stage_anomalies(current_run_df: pd.DataFrame, baseline_df: pd.DataFrame) -> List[Dict]:
+    """Compare the current run against historical stage baselines."""
+    if current_run_df is None or current_run_df.empty or baseline_df is None or baseline_df.empty:
+        return []
+
+    current = current_run_df.copy()
+    if "stage" not in current.columns or "stage" not in baseline_df.columns:
+        return []
+
+    for metric in ANOMALY_METRICS:
+        if metric not in current.columns:
+            current[metric] = 0.0
+        current[metric] = pd.to_numeric(current[metric], errors="coerce").fillna(0.0)
+
+    current_stage_values = (
+        current.groupby("stage", dropna=False)
+        .agg(
+            duration_seconds=("duration_seconds", "sum"),
+            total_energy_kwh=("total_energy_kwh", "sum"),
+            active_energy_kwh=("active_energy_kwh", "sum"),
+            total_carbon_kg=("total_carbon_kg", "sum"),
+            avg_cpu_percent=("avg_cpu_percent", "mean"),
+        )
+        .reset_index()
+    )
+
+    anomalies: List[Dict] = []
+    for _, current_row in current_stage_values.iterrows():
+        stage = current_row["stage"]
+        baseline_rows = baseline_df[baseline_df["stage"] == stage]
+        if baseline_rows.empty:
+            continue
+
+        baseline_row = baseline_rows.iloc[0]
+        for metric in ANOMALY_METRICS:
+            anomaly = _build_anomaly(stage, metric, current_row.get(metric), baseline_row)
+            if anomaly is not None:
+                anomalies.append(anomaly)
+
+    return anomalies
+
+
+def summarize_anomalies(anomalies: List[Dict]) -> Dict[str, object]:
+    critical_count = sum(1 for item in anomalies if item.get("severity") == "critical")
+    warning_count = sum(1 for item in anomalies if item.get("severity") == "warning")
+
+    if critical_count > 0:
+        overall_status = "Critical"
+        summary_message = f"{critical_count} critical anomaly(s) detected across monitored stages."
+    elif warning_count > 0:
+        overall_status = "Warning"
+        summary_message = f"{warning_count} warning anomaly(s) detected across monitored stages."
+    else:
+        overall_status = "Normal"
+        summary_message = "No stage-level sustainability anomalies were detected."
+
+    return {
+        "critical_count": critical_count,
+        "warning_count": warning_count,
+        "overall_status": overall_status,
+        "summary_message": summary_message,
+    }
+
+
+def _build_anomaly(stage, metric, current_value, baseline_row):
+    mean = _to_float(baseline_row.get(f"{metric}_mean"))
+    std = _to_float(baseline_row.get(f"{metric}_std"))
+    current_value = _to_float(current_value) or 0.0
+
+    if mean is None:
+        return None
+
+    percentage_change = _percentage_change(current_value, mean)
+    z_score = None
+    if std is not None and std > 0:
+        z_score = (current_value - mean) / std
+
+    severity = _determine_severity(current_value, mean, percentage_change, z_score)
+    if severity == "normal":
+        return None
+
+    change_text = _format_percentage_for_message(percentage_change)
+    stage_label = str(stage).replace("_", " ").title()
+    metric_label = metric.replace("_", " ")
+    message = f"{stage_label} {metric_label} is {change_text} above historical baseline."
+
+    return {
+        "stage": stage,
+        "metric": metric,
+        "current_value": round(current_value, 8),
+        "baseline_mean": round(mean, 8),
+        "percentage_change": None if percentage_change is None else round(percentage_change, 2),
+        "z_score": None if z_score is None else round(z_score, 2),
+        "severity": severity,
+        "message": message,
+    }
+
+
+def _determine_severity(current_value, baseline_mean, percentage_change, z_score):
+    if baseline_mean is None or current_value <= baseline_mean:
+        return "normal"
+
+    severity = "normal"
+    if percentage_change is not None:
+        if percentage_change > 75:
+            severity = "critical"
+        elif percentage_change > 30:
+            severity = "warning"
+
+    if z_score is not None:
+        if z_score >= 2.0:
+            severity = "critical"
+        elif z_score >= 1.0 and severity != "critical":
+            severity = "warning"
+
+    return severity
+
+
+def _percentage_change(current_value, baseline_mean):
+    if baseline_mean is None or baseline_mean == 0:
+        return None
+    return ((current_value - baseline_mean) / baseline_mean) * 100.0
+
+
+def _format_percentage_for_message(percentage_change):
+    if percentage_change is None:
+        return "materially"
+    return f"{round(percentage_change)}%"
+
+
+def _to_float(value):
+    if value is None or pd.isna(value):
+        return None
+    return float(value)

@@ -1,14 +1,36 @@
 from flask import Flask, render_template_string, request
-import pandas as pd
-import os
 import json
+import os
+
+import pandas as pd
 from pymongo import MongoClient
+
+from intelligence import (
+    calculate_pipeline_baseline,
+    calculate_stage_baselines,
+    calculate_sustainability_score,
+    detect_stage_anomalies,
+    summarize_anomalies,
+)
 
 app = Flask(__name__)
 
 MONGO_DB_NAME = "green_devops_monitor"
 MONGO_COLLECTION_NAME = "pipeline_metrics"
 CSV_FALLBACK_PATH = "data/metrics.csv"
+
+NUMERIC_COLS = [
+    "duration_seconds",
+    "avg_cpu_percent",
+    "peak_cpu_percent",
+    "total_energy_kwh",
+    "active_energy_kwh",
+    "total_carbon_kg",
+    "active_carbon_kg",
+    "carbon_intensity_kg_per_kwh",
+]
+
+DEFAULT_STAGE_ORDER = ["build", "test", "deploy"]
 
 
 def load_metrics():
@@ -35,6 +57,120 @@ def load_metrics():
             pass
 
     return pd.DataFrame(), "No data source"
+
+
+def prepare_metrics_dataframe(df):
+    prepared = df.copy()
+
+    if prepared.empty:
+        return prepared
+
+    if "run_id" not in prepared.columns:
+        prepared["run_id"] = "run-1"
+    prepared["run_id"] = prepared["run_id"].fillna("unknown-run").astype(str)
+
+    if "stage" not in prepared.columns:
+        prepared["stage"] = "unknown"
+    prepared["stage"] = prepared["stage"].fillna("unknown").astype(str)
+
+    for col in NUMERIC_COLS:
+        if col not in prepared.columns:
+            prepared[col] = 0.0
+        prepared[col] = pd.to_numeric(prepared[col], errors="coerce").fillna(0.0)
+
+    if "status" not in prepared.columns:
+        prepared["status"] = "unknown"
+    prepared["status"] = prepared["status"].fillna("unknown").astype(str)
+
+    if "end_timestamp" not in prepared.columns:
+        prepared["end_timestamp"] = ""
+    prepared["end_timestamp"] = prepared["end_timestamp"].fillna("").astype(str)
+
+    if "carbon_source" not in prepared.columns:
+        prepared["carbon_source"] = "unknown"
+    prepared["carbon_source"] = prepared["carbon_source"].fillna("unknown").astype(str)
+
+    return prepared
+
+
+def build_run_summary(df):
+    if df.empty:
+        return pd.DataFrame(
+            columns=[
+                "run_id",
+                "total_energy_kwh",
+                "total_carbon_kg",
+                "duration_seconds",
+                "status",
+                "latest_time",
+            ]
+        )
+
+    return (
+        df.groupby("run_id")
+        .agg(
+            total_energy_kwh=("total_energy_kwh", "sum"),
+            total_carbon_kg=("total_carbon_kg", "sum"),
+            duration_seconds=("duration_seconds", "sum"),
+            status=("status", lambda x: "failed" if x.astype(str).str.lower().eq("failed").any() else "success"),
+            latest_time=("end_timestamp", "max"),
+        )
+        .reset_index()
+        .sort_values(["latest_time", "run_id"], ascending=[False, False])
+    )
+
+
+def ordered_stage_categories(stages):
+    stage_values = [str(stage) for stage in stages if pd.notna(stage)]
+    extras = sorted(stage for stage in stage_values if stage not in DEFAULT_STAGE_ORDER)
+    ordered = [stage for stage in DEFAULT_STAGE_ORDER if stage in stage_values]
+    ordered.extend(stage for stage in extras if stage not in ordered)
+    return ordered or DEFAULT_STAGE_ORDER
+
+
+def confidence_from_run_count(run_count):
+    if run_count >= 10:
+        return "High"
+    if run_count >= 3:
+        return "Medium"
+    return "Low"
+
+
+def safe_percentage_change(current_value, baseline_value):
+    if baseline_value is None or pd.isna(baseline_value) or baseline_value == 0:
+        return None
+    return ((current_value - baseline_value) / baseline_value) * 100.0
+
+
+def format_change_label(change):
+    if change is None:
+        return "Baseline unavailable"
+    sign = "+" if change >= 0 else ""
+    return f"{sign}{round(change, 1)}%"
+
+
+def build_comparison_rows(current_run_df, pipeline_baseline):
+    comparisons = [
+        ("Total Energy", "kWh", "total_energy_kwh"),
+        ("Total Carbon", "kgCO2e", "total_carbon_kg"),
+        ("Total Duration", "s", "duration_seconds"),
+    ]
+    rows = []
+    for label, unit, metric in comparisons:
+        current_value = float(current_run_df[metric].sum()) if metric in current_run_df.columns else 0.0
+        baseline_mean = pipeline_baseline.get(f"{metric}_mean")
+        change = safe_percentage_change(current_value, baseline_mean)
+        rows.append(
+            {
+                "label": label,
+                "unit": unit,
+                "current_value": round(current_value, 4),
+                "baseline_mean": None if baseline_mean is None else round(float(baseline_mean), 4),
+                "change_label": format_change_label(change),
+                "is_above": change is not None and change > 0,
+            }
+        )
+    return rows
 
 
 HTML = """
@@ -180,7 +316,7 @@ HTML = """
                             <i data-lucide="cloud" class="w-24 h-24 text-sky-400"></i>
                         </div>
                         <p class="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Carbon Footprint</p>
-                        <p class="text-3xl font-black text-sky-400">{{ total_carbon }} <span class="text-sm font-normal text-slate-500">kgCO₂</span></p>
+                        <p class="text-3xl font-black text-sky-400">{{ total_carbon }} <span class="text-sm font-normal text-slate-500">kgCO2e</span></p>
                         <p class="text-[10px] text-slate-500 mt-2 font-medium">Based on regional grid intensity</p>
                     </div>
 
@@ -200,6 +336,49 @@ HTML = """
                         <p class="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Total Duration</p>
                         <p class="text-3xl font-black text-purple-400">{{ pipeline_duration }} <span class="text-sm font-normal text-slate-500">s</span></p>
                         <p class="text-[10px] text-slate-500 mt-2 font-medium">Measured monitored-stage runtime</p>
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
+                    <div class="glass-panel p-5">
+                        <div class="flex items-center justify-between mb-3">
+                            <p class="text-xs font-bold text-slate-400 uppercase tracking-wider">Sustainability Health Score</p>
+                            <i data-lucide="shield-check" class="w-4 h-4 text-emerald-400"></i>
+                        </div>
+                        <p class="text-3xl font-black text-white">{{ health_score.score }}<span class="text-sm font-normal text-slate-500">/100</span></p>
+                        <p class="text-sm font-semibold text-emerald-300 mt-1">{{ health_score.grade }}</p>
+                        <p class="text-[11px] text-slate-500 mt-2">{{ health_score.explanation }}</p>
+                    </div>
+
+                    <div class="glass-panel p-5">
+                        <div class="flex items-center justify-between mb-3">
+                            <p class="text-xs font-bold text-slate-400 uppercase tracking-wider">Monitoring Confidence</p>
+                            <i data-lucide="radar" class="w-4 h-4 text-sky-400"></i>
+                        </div>
+                        <p class="text-3xl font-black text-sky-300">{{ confidence_level }}</p>
+                        <p class="text-sm font-semibold text-slate-300 mt-1">{{ baseline_run_count }} historical run{{ '' if baseline_run_count == 1 else 's' }}</p>
+                        <p class="text-[11px] text-slate-500 mt-2">Historical baseline excludes the selected run when prior runs are available.</p>
+                    </div>
+
+                    <div class="glass-panel p-5">
+                        <div class="flex items-center justify-between mb-3">
+                            <p class="text-xs font-bold text-slate-400 uppercase tracking-wider">Anomaly Status</p>
+                            <i data-lucide="triangle-alert" class="w-4 h-4 {% if anomaly_summary.overall_status == 'Critical' %}text-rose-400{% elif anomaly_summary.overall_status == 'Warning' %}text-amber-400{% else %}text-emerald-400{% endif %}"></i>
+                        </div>
+                        <p class="text-3xl font-black {% if anomaly_summary.overall_status == 'Critical' %}text-rose-300{% elif anomaly_summary.overall_status == 'Warning' %}text-amber-300{% else %}text-emerald-300{% endif %}">{{ anomaly_summary.overall_status }}</p>
+                        <p class="text-sm font-semibold text-slate-300 mt-1">{{ anomaly_summary.critical_count }} critical / {{ anomaly_summary.warning_count }} warning</p>
+                        <p class="text-[11px] text-slate-500 mt-2">{{ anomaly_summary.summary_message }}</p>
+                    </div>
+
+                    <div class="glass-panel p-5">
+                        <div class="flex items-center justify-between mb-3">
+                            <p class="text-xs font-bold text-slate-400 uppercase tracking-wider">Baseline Comparison</p>
+                            <i data-lucide="scale" class="w-4 h-4 text-purple-400"></i>
+                        </div>
+                        <p class="text-sm font-semibold text-slate-200">Energy {{ comparison_rows[0].change_label }}</p>
+                        <p class="text-sm font-semibold text-slate-200 mt-1">Carbon {{ comparison_rows[1].change_label }}</p>
+                        <p class="text-sm font-semibold text-slate-200 mt-1">Duration {{ comparison_rows[2].change_label }}</p>
+                        <p class="text-[11px] text-slate-500 mt-2">Current run versus historical pipeline mean.</p>
                     </div>
                 </div>
 
@@ -241,6 +420,53 @@ HTML = """
                     </div>
                 </div>
 
+                <div class="grid grid-cols-1 xl:grid-cols-2 gap-6">
+                    <div class="glass-panel overflow-hidden">
+                        <div class="px-6 py-4 border-b border-white/5 flex items-center justify-between bg-white/2">
+                            <h3 class="text-sm font-bold text-slate-200 uppercase tracking-wider">Baseline Comparison</h3>
+                            <span class="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Current vs Historical Mean</span>
+                        </div>
+                        <div class="divide-y divide-white/5">
+                            {% for item in comparison_rows %}
+                            <div class="px-6 py-4 flex items-center justify-between gap-4">
+                                <div>
+                                    <p class="text-sm font-bold text-slate-200">{{ item.label }}</p>
+                                    <p class="text-[11px] text-slate-500">Baseline {% if item.baseline_mean is not none %}{{ item.baseline_mean }} {{ item.unit }}{% else %}Unavailable{% endif %}</p>
+                                </div>
+                                <div class="text-right">
+                                    <p class="text-sm font-bold text-white">{{ item.current_value }} {{ item.unit }}</p>
+                                    <p class="text-[11px] font-semibold {% if item.change_label == 'Baseline unavailable' %}text-slate-500{% elif item.is_above %}text-amber-300{% else %}text-emerald-300{% endif %}">{{ item.change_label }}</p>
+                                </div>
+                            </div>
+                            {% endfor %}
+                        </div>
+                    </div>
+
+                    <div class="glass-panel overflow-hidden">
+                        <div class="px-6 py-4 border-b border-white/5 flex items-center justify-between bg-white/2">
+                            <h3 class="text-sm font-bold text-slate-200 uppercase tracking-wider">Top Anomalies</h3>
+                            <span class="text-[10px] font-bold text-slate-500 uppercase tracking-widest">{{ anomaly_list|length }} Flagged</span>
+                        </div>
+                        <div class="p-6 space-y-3">
+                            {% if anomaly_list %}
+                                {% for anomaly in anomaly_list[:3] %}
+                                <div class="rounded-xl border {% if anomaly.severity == 'critical' %}border-rose-500/25 bg-rose-500/5{% else %}border-amber-500/25 bg-amber-500/5{% endif %} p-4">
+                                    <p class="text-sm font-semibold {% if anomaly.severity == 'critical' %}text-rose-300{% else %}text-amber-300{% endif %}">{{ anomaly.message }}</p>
+                                    <p class="text-[11px] text-slate-400 mt-1">
+                                        Current {{ anomaly.current_value }}, baseline {{ anomaly.baseline_mean }}, z-score {{ anomaly.z_score if anomaly.z_score is not none else 'N/A' }}
+                                    </p>
+                                </div>
+                                {% endfor %}
+                            {% else %}
+                                <div class="rounded-xl border border-emerald-500/20 bg-emerald-500/5 p-4">
+                                    <p class="text-sm font-semibold text-emerald-300">No warning or critical anomalies detected for this run.</p>
+                                    <p class="text-[11px] text-slate-500 mt-1">Historical comparisons will get stronger as more runs are collected.</p>
+                                </div>
+                            {% endif %}
+                        </div>
+                    </div>
+                </div>
+
                 <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
                     <div class="glass-panel p-6">
                         <div class="flex items-center justify-between mb-6">
@@ -260,6 +486,53 @@ HTML = """
                         <div class="h-[250px]">
                             <canvas id="cpuChart"></canvas>
                         </div>
+                    </div>
+                </div>
+
+                <div class="glass-panel overflow-hidden">
+                    <div class="px-6 py-4 border-b border-white/5 flex items-center justify-between bg-white/2">
+                        <h3 class="text-sm font-bold text-slate-200 uppercase tracking-wider">Anomalies Detail</h3>
+                        <span class="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Explainable Detection</span>
+                    </div>
+
+                    <div class="overflow-x-auto">
+                        <table class="w-full text-left">
+                            <thead>
+                                <tr class="text-[11px] font-bold text-slate-400 uppercase tracking-wider bg-slate-900/40">
+                                    <th class="px-6 py-4">Stage</th>
+                                    <th class="px-6 py-4">Metric</th>
+                                    <th class="px-6 py-4">Current</th>
+                                    <th class="px-6 py-4">Baseline</th>
+                                    <th class="px-6 py-4">% Change</th>
+                                    <th class="px-6 py-4">Z-Score</th>
+                                    <th class="px-6 py-4 text-right">Severity</th>
+                                </tr>
+                            </thead>
+
+                            <tbody class="divide-y divide-white/5">
+                                {% if anomaly_list %}
+                                    {% for anomaly in anomaly_list %}
+                                    <tr class="hover:bg-white/5 transition-colors">
+                                        <td class="px-6 py-4 text-slate-200 font-semibold">{{ anomaly.stage }}</td>
+                                        <td class="px-6 py-4 text-slate-300">{{ anomaly.metric }}</td>
+                                        <td class="px-6 py-4 text-white">{{ anomaly.current_value }}</td>
+                                        <td class="px-6 py-4 text-slate-300">{{ anomaly.baseline_mean }}</td>
+                                        <td class="px-6 py-4 text-slate-300">{{ anomaly.percentage_change if anomaly.percentage_change is not none else 'N/A' }}</td>
+                                        <td class="px-6 py-4 text-slate-300">{{ anomaly.z_score if anomaly.z_score is not none else 'N/A' }}</td>
+                                        <td class="px-6 py-4 text-right">
+                                            <span class="text-[10px] px-2 py-0.5 rounded-full font-bold uppercase {% if anomaly.severity == 'critical' %}text-rose-300 bg-rose-500/10{% else %}text-amber-300 bg-amber-500/10{% endif %}">
+                                                {{ anomaly.severity }}
+                                            </span>
+                                        </td>
+                                    </tr>
+                                    {% endfor %}
+                                {% else %}
+                                    <tr>
+                                        <td colspan="7" class="px-6 py-6 text-center text-slate-500">No warning or critical anomalies to display for the selected run.</td>
+                                    </tr>
+                                {% endif %}
+                            </tbody>
+                        </table>
                     </div>
                 </div>
 
@@ -319,7 +592,7 @@ HTML = """
                 </div>
 
                 <footer class="text-center text-slate-500 text-[10px] uppercase tracking-[0.2em] pt-4 border-t border-white/5">
-                    Pipeline Engine v2.5 • MongoDB-backed monitoring active • Refreshes every 15s
+                    Pipeline Engine v2.5 | MongoDB-backed monitoring active | Refreshes every 15s
                 </footer>
             </main>
         </div>
@@ -416,81 +689,89 @@ def dashboard():
         </div>
         """
 
-    numeric_cols = [
-        "duration_seconds",
-        "avg_cpu_percent",
-        "peak_cpu_percent",
-        "total_energy_kwh",
-        "active_energy_kwh",
-        "total_carbon_kg",
-        "active_carbon_kg",
-        "carbon_intensity_kg_per_kwh"
-    ]
+    df = prepare_metrics_dataframe(df)
+    run_summary = build_run_summary(df)
 
-    for col in numeric_cols:
-        if col not in df.columns:
-            df[col] = 0
-        df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0)
-
-    if "status" not in df.columns:
-        df["status"] = "unknown"
-    if "end_timestamp" not in df.columns:
-        df["end_timestamp"] = ""
-    if "carbon_source" not in df.columns:
-        df["carbon_source"] = "unknown"
-
-    run_summary = (
-        df.groupby("run_id")
-        .agg(
-            total_energy_kwh=("total_energy_kwh", "sum"),
-            total_carbon_kg=("total_carbon_kg", "sum"),
-            duration_seconds=("duration_seconds", "sum"),
-            status=("status", lambda x: "failed" if "failed" in list(x) else "success"),
-            latest_time=("end_timestamp", "max")
-        )
-        .reset_index()
-        .sort_values("latest_time", ascending=False)
-    )
+    if run_summary.empty:
+        return """
+        <div style='background:#020617; color:white; height:100vh; display:flex; align-items:center; justify-content:center; font-family:sans-serif;'>
+            <h2>No monitoring data found.</h2>
+        </div>
+        """
 
     requested_run = request.args.get("run_id")
-    selected_run = requested_run if requested_run in run_summary["run_id"].values else run_summary.iloc[0]["run_id"]
+    available_run_ids = set(run_summary["run_id"].astype(str).tolist())
+    selected_run = requested_run if requested_run in available_run_ids else str(run_summary.iloc[0]["run_id"])
 
-    latest = df[df["run_id"] == selected_run].copy()
+    current_run_df = df[df["run_id"] == selected_run].copy()
+    historical_df = df[df["run_id"] != selected_run].copy()
 
-    stage_order = ["build", "test", "deploy"]
-    latest["stage"] = pd.Categorical(latest["stage"], categories=stage_order, ordered=True)
-    latest = latest.sort_values("stage")
+    baseline_run_count = int(historical_df["run_id"].nunique()) if not historical_df.empty else 0
+    confidence_level = confidence_from_run_count(baseline_run_count)
+    stage_baseline_df = calculate_stage_baselines(historical_df)
+    pipeline_baseline = calculate_pipeline_baseline(historical_df)
 
-    summary = latest.groupby("stage", observed=True).mean(numeric_only=True).reset_index()
+    stage_order = ordered_stage_categories(current_run_df["stage"].tolist())
+    current_run_df["stage"] = pd.Categorical(current_run_df["stage"], categories=stage_order, ordered=True)
+    current_run_df = current_run_df.sort_values("stage")
 
-    total_energy = round(latest["total_energy_kwh"].sum(), 8)
-    active_energy = round(latest["active_energy_kwh"].sum(), 8)
-    total_carbon = round(latest["total_carbon_kg"].sum(), 8)
-    carbon_source = latest["carbon_source"].iloc[-1] if not latest.empty else "N/A"
-    pipeline_duration = round(latest["duration_seconds"].sum(), 2)
-    avg_cpu = round(summary["avg_cpu_percent"].mean(), 2) if not summary.empty else 0
+    summary = (
+        current_run_df.groupby("stage", observed=True)
+        .agg(
+            duration_seconds=("duration_seconds", "sum"),
+            avg_cpu_percent=("avg_cpu_percent", "mean"),
+            total_energy_kwh=("total_energy_kwh", "sum"),
+            active_energy_kwh=("active_energy_kwh", "sum"),
+            total_carbon_kg=("total_carbon_kg", "sum"),
+        )
+        .reset_index()
+    )
 
-    phone_charges = round(total_energy / 0.01, 3)
-    led_hours = round(total_energy / 0.01, 3)
-    car_meters = round(((total_carbon * 1000) / 120) * 1000, 3)
+    anomalies = detect_stage_anomalies(current_run_df, stage_baseline_df)
+    anomalies = sorted(
+        anomalies,
+        key=lambda item: (
+            0 if item["severity"] == "critical" else 1,
+            -(item["percentage_change"] or 0),
+            str(item["stage"]),
+            str(item["metric"]),
+        ),
+    )
+    anomaly_summary = summarize_anomalies(anomalies)
+    health_score = calculate_sustainability_score(current_run_df, pipeline_baseline, anomalies)
+    comparison_rows = build_comparison_rows(current_run_df, pipeline_baseline)
 
-    highest_active_stage = summary.sort_values("active_energy_kwh", ascending=False).iloc[0]["stage"] if not summary.empty else "N/A"
-    highest_total_stage = summary.sort_values("total_energy_kwh", ascending=False).iloc[0]["stage"] if not summary.empty else "N/A"
+    total_energy = round(float(current_run_df["total_energy_kwh"].sum()), 8)
+    active_energy = round(float(current_run_df["active_energy_kwh"].sum()), 8)
+    total_carbon = round(float(current_run_df["total_carbon_kg"].sum()), 8)
+    pipeline_duration = round(float(current_run_df["duration_seconds"].sum()), 2)
+    avg_cpu = round(float(summary["avg_cpu_percent"].mean()), 2) if not summary.empty else 0
 
+    phone_charges = round(total_energy / 0.01, 3) if total_energy else 0
+    led_hours = round(total_energy / 0.01, 3) if total_energy else 0
+    car_meters = round(((total_carbon * 1000) / 120) * 1000, 3) if total_carbon else 0
+
+    highest_active_stage = (
+        summary.sort_values("active_energy_kwh", ascending=False).iloc[0]["stage"] if not summary.empty else "N/A"
+    )
+    highest_total_stage = (
+        summary.sort_values("total_energy_kwh", ascending=False).iloc[0]["stage"] if not summary.empty else "N/A"
+    )
+
+    anomaly_teaser = anomalies[0]["message"] if anomalies else "No warning or critical anomalies were detected."
     pipeline_insight = (
-        f"Run {selected_run} used {total_energy} kWh and emitted {total_carbon} kgCO₂eq. "
-        f"That is approximately equal to charging a smartphone {phone_charges} times, "
-        f"running a 10W LED bulb for {led_hours} hours, or driving about {car_meters} meters in an average petrol car."
+        f"Run {selected_run} used {total_energy} kWh and emitted {total_carbon} kgCO2e. "
+        f"Health score: {health_score['score']}/100 ({health_score['grade']}). {anomaly_teaser}"
     )
 
     stage_insight = (
         f"The {highest_active_stage} stage had the highest active compute demand, while "
-        f"{highest_total_stage} had the largest total energy footprint. This helps separate CPU-heavy stages "
-        f"from stages that consume energy mainly because they run longer."
+        f"{highest_total_stage} had the largest total energy footprint. Monitoring confidence is {confidence_level.lower()} "
+        f"based on {baseline_run_count} historical run(s)."
     )
 
-    display_rows = latest.copy()
-    for col in numeric_cols:
+    display_rows = current_run_df.copy()
+    for col in NUMERIC_COLS:
         display_rows[col] = display_rows[col].round(8)
 
     run_summary["total_energy_kwh"] = run_summary["total_energy_kwh"].round(8)
@@ -510,7 +791,7 @@ def dashboard():
         phone_charges=phone_charges,
         led_hours=led_hours,
         car_meters=car_meters,
-        stage_count=len(latest),
+        stage_count=len(current_run_df),
         pipeline_insight=pipeline_insight,
         stage_insight=stage_insight,
         rows=display_rows.to_dict(orient="records"),
@@ -518,6 +799,12 @@ def dashboard():
         total_energy_values=json.dumps(summary["total_energy_kwh"].round(8).tolist()),
         active_energy_values=json.dumps(summary["active_energy_kwh"].round(8).tolist()),
         cpu_values=json.dumps(summary["avg_cpu_percent"].round(2).tolist()),
+        health_score=health_score,
+        confidence_level=confidence_level,
+        baseline_run_count=baseline_run_count,
+        anomaly_summary=anomaly_summary,
+        comparison_rows=comparison_rows,
+        anomaly_list=anomalies,
     )
 
 
