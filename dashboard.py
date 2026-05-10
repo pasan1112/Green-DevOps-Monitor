@@ -300,6 +300,37 @@ def ml_status_color(status):
     return "emerald"
 
 
+def severity_theme(severity):
+    normalized = str(severity or "normal").strip().lower()
+    themes = {
+        "critical": {
+            "label": "Critical",
+            "text_class": "text-rose-300",
+            "badge_class": "text-rose-300 bg-rose-500/10",
+            "panel_class": "border-rose-500/25 bg-rose-500/5",
+        },
+        "warning": {
+            "label": "Warning",
+            "text_class": "text-amber-300",
+            "badge_class": "text-amber-300 bg-amber-500/10",
+            "panel_class": "border-amber-500/25 bg-amber-500/5",
+        },
+        "info": {
+            "label": "Info",
+            "text_class": "text-sky-300",
+            "badge_class": "text-sky-300 bg-sky-500/10",
+            "panel_class": "border-sky-500/25 bg-sky-500/5",
+        },
+        "normal": {
+            "label": "Normal",
+            "text_class": "text-emerald-300",
+            "badge_class": "text-emerald-300 bg-emerald-500/10",
+            "panel_class": "border-emerald-500/25 bg-emerald-500/5",
+        },
+    }
+    return themes.get(normalized, themes["normal"])
+
+
 def deduplicate_anomalies(anomalies, allowed_metrics=None, limit=8):
     filtered = []
     for anomaly in anomalies:
@@ -377,6 +408,156 @@ def build_comparison_rows(current_run_df, pipeline_baseline):
             }
         )
     return rows
+
+
+def build_statistical_metric_groups(summary_df, stage_baseline_df, anomalies):
+    metric_groups = [
+        ("Workload Duration", "workload_duration_seconds"),
+        ("Infrastructure Overhead %", "overhead_percentage"),
+        ("Total Energy", "total_energy_kwh"),
+        ("Carbon Emission", "total_carbon_kg"),
+    ]
+
+    stage_lookup = {}
+    if summary_df is not None and not summary_df.empty:
+        for _, row in summary_df.iterrows():
+            stage_lookup[str(row["stage"])] = row
+
+    baseline_lookup = {}
+    if stage_baseline_df is not None and not stage_baseline_df.empty and "stage" in stage_baseline_df.columns:
+        for _, row in stage_baseline_df.iterrows():
+            baseline_lookup[str(row["stage"])] = row
+
+    anomaly_lookup = {}
+    for anomaly in anomalies or []:
+        key = (str(anomaly.get("stage")), str(anomaly.get("metric")))
+        existing = anomaly_lookup.get(key)
+        if existing is None:
+            anomaly_lookup[key] = anomaly
+            continue
+        candidate_score = (
+            severity_rank(anomaly.get("severity")),
+            -abs(float(anomaly.get("percentage_change") or 0.0)),
+        )
+        existing_score = (
+            severity_rank(existing.get("severity")),
+            -abs(float(existing.get("percentage_change") or 0.0)),
+        )
+        if candidate_score < existing_score:
+            anomaly_lookup[key] = anomaly
+
+    stage_order = ordered_stage_categories(
+        list(stage_lookup.keys()) + list(baseline_lookup.keys()) + DEFAULT_STAGE_ORDER
+    )
+
+    groups = []
+    for title, metric in metric_groups:
+        rows = []
+        for stage in stage_order:
+            summary_row = stage_lookup.get(stage)
+            baseline_row = baseline_lookup.get(stage)
+            current_value = float(summary_row.get(metric, 0.0)) if summary_row is not None else 0.0
+            baseline_mean = None
+            baseline_std = None
+            if baseline_row is not None:
+                baseline_mean = baseline_row.get(f"{metric}_mean")
+                baseline_std = baseline_row.get(f"{metric}_std")
+            baseline_mean = None if baseline_mean is None or pd.isna(baseline_mean) else float(baseline_mean)
+            baseline_std = None if baseline_std is None or pd.isna(baseline_std) else float(baseline_std)
+
+            anomaly = anomaly_lookup.get((stage, metric), {})
+            severity = str(anomaly.get("severity") or "normal").lower()
+            percentage_change = anomaly.get("percentage_change")
+            if percentage_change is None:
+                percentage_change = safe_percentage_change(current_value, baseline_mean)
+            z_score = anomaly.get("z_score")
+            if z_score is None and baseline_mean is not None and baseline_std is not None and baseline_std > 0:
+                z_score = (current_value - baseline_mean) / baseline_std
+
+            stage_label = str(stage).replace("_", " ").title()
+            current_display = format_metric_value(metric, current_value)
+            baseline_display = (
+                format_metric_value(metric, baseline_mean) if baseline_mean is not None else "Baseline unavailable"
+            )
+            change_display = format_percent(percentage_change) if percentage_change is not None else "N/A"
+            z_score_display = f"{float(z_score):.2f}" if z_score is not None else "N/A"
+            theme = severity_theme(severity)
+            insight = anomaly.get("message")
+            if not insight:
+                if baseline_mean is None:
+                    insight = f"{stage_label} baseline is not available yet."
+                elif severity == "normal":
+                    insight = f"{stage_label} is stable compared with baseline."
+                else:
+                    insight = f"{stage_label} moved away from its usual {metric_label(metric).lower()} pattern."
+
+            rows.append(
+                {
+                    "stage": stage,
+                    "stage_label": stage_label,
+                    "current_value": current_value,
+                    "baseline_mean": baseline_mean,
+                    "percentage_change": percentage_change,
+                    "z_score": z_score,
+                    "severity": severity,
+                    "severity_label": theme["label"],
+                    "severity_badge_class": theme["badge_class"],
+                    "current_display": current_display,
+                    "baseline_display": baseline_display,
+                    "change_display": change_display,
+                    "z_score_display": z_score_display,
+                    "insight": insight,
+                }
+            )
+
+        rows.sort(
+            key=lambda item: (
+                severity_rank(item["severity"]),
+                -abs(float(item["percentage_change"] or 0.0)),
+                item["stage_label"],
+            )
+        )
+        worst_row = rows[0] if rows else None
+        overall_severity = worst_row["severity"] if worst_row else "normal"
+        overall_theme = severity_theme(overall_severity)
+        has_major_anomaly = any(row["severity"] in {"critical", "warning"} for row in rows)
+
+        if worst_row is None:
+            insight = "Stable compared with baseline."
+            worst_stage_label = "No stage data"
+            current_vs_usual = "No data available"
+            change_display = "N/A"
+        elif has_major_anomaly:
+            insight = worst_row["insight"]
+            worst_stage_label = worst_row["stage_label"]
+            current_vs_usual = f"{worst_row['current_display']} vs {worst_row['baseline_display']}"
+            change_display = worst_row["change_display"]
+        else:
+            insight = "Stable compared with baseline."
+            normal_candidate = next((row for row in rows if row["baseline_mean"] is not None), worst_row)
+            worst_stage_label = normal_candidate["stage_label"]
+            current_vs_usual = f"{normal_candidate['current_display']} vs {normal_candidate['baseline_display']}"
+            change_display = normal_candidate["change_display"]
+
+        rows.sort(key=lambda item: (stage_order.index(item["stage"]), item["stage_label"]))
+        groups.append(
+            {
+                "title": title,
+                "metric": metric,
+                "severity": overall_severity,
+                "severity_label": overall_theme["label"],
+                "severity_text_class": overall_theme["text_class"],
+                "severity_badge_class": overall_theme["badge_class"],
+                "panel_class": overall_theme["panel_class"],
+                "worst_stage_label": worst_stage_label,
+                "current_vs_usual": current_vs_usual,
+                "change_display": change_display,
+                "insight": insight,
+                "rows": rows,
+            }
+        )
+
+    return groups
 
 
 HTML = """
@@ -718,87 +899,74 @@ HTML = """
 
                 <section class="glass-panel overflow-hidden">
                     <div class="px-6 py-5 border-b border-white/5 bg-white/2">
-                        <p class="text-xs font-bold text-emerald-300 uppercase tracking-[0.2em] mb-2">Anomaly Detection</p>
+                        <p class="text-xs font-bold text-emerald-300 uppercase tracking-[0.2em] mb-2">Statistical Anomaly Detection</p>
                         <h2 class="text-2xl font-extrabold text-white">Was anything unusual?</h2>
                         <p class="text-sm text-slate-600 mt-2">
-                            Highlights stages that are above their usual energy, carbon, or timing pattern.
+                            Each metric is compared with its own historical baseline so timing, overhead, energy, and carbon stay easy to scan.
                         </p>
                     </div>
 
-                    <div class="grid grid-cols-1 xl:grid-cols-2 gap-6 p-6">
-                        <div>
-                            <div class="flex items-center justify-between mb-4">
-                                <h3 class="text-sm font-bold text-slate-200 uppercase tracking-wider">Top Anomalies</h3>
-                                <span class="text-[10px] font-bold text-slate-500 uppercase tracking-widest">{{ anomaly_list|length }} Shown</span>
-                            </div>
-                            <div class="space-y-3">
-                                {% if anomaly_list %}
-                                    {% for anomaly in anomaly_list[:3] %}
-                                    <div class="rounded-xl border {% if anomaly.severity == 'critical' %}border-rose-500/25 bg-rose-500/5{% elif anomaly.severity == 'warning' %}border-amber-500/25 bg-amber-500/5{% else %}border-sky-500/25 bg-sky-500/5{% endif %} p-4">
-                                        <p class="text-sm font-semibold {% if anomaly.severity == 'critical' %}text-rose-300{% elif anomaly.severity == 'warning' %}text-amber-300{% else %}text-sky-300{% endif %}">{{ anomaly.message }}</p>
-                                        <p class="text-[11px] text-slate-400 mt-1">
-                                            Current {{ anomaly.current_display }}, usual {{ anomaly.baseline_display }}, z-score {{ anomaly.z_score_display }}
-                                        </p>
-                                    </div>
-                                    {% endfor %}
-                                {% else %}
-                                    <div class="rounded-xl border border-emerald-500/20 bg-emerald-500/5 p-4">
-                                        <p class="text-sm font-semibold text-emerald-300">No major anomaly detected for this run.</p>
-                                        <p class="text-[11px] text-slate-500 mt-1">The current run stayed close to expected behavior for the key PP1 metrics.</p>
-                                    </div>
-                                {% endif %}
-                            </div>
+                    <div class="p-6">
+                        <div class="rounded-2xl border border-white/5 bg-slate-950/30 p-4 mb-6">
+                            <p class="text-sm text-slate-400">Critical and Warning signal meaningful deviation from the stage baseline.</p>
+                            <p class="text-sm text-slate-400 mt-1">Z-score shows how far the current value moved from usual behavior for that metric.</p>
                         </div>
 
-                        <div class="rounded-2xl border border-white/5 bg-slate-950/30 p-5">
-                            <h3 class="text-sm font-bold text-slate-200 uppercase tracking-wider mb-3">How to read this</h3>
-                            <div class="space-y-3 text-sm text-slate-400">
-                                <p><span class="text-slate-200 font-semibold">Critical</span> means a stage moved far above normal and likely deserves investigation.</p>
-                                <p><span class="text-slate-200 font-semibold">Warning</span> means the stage was higher than expected, but the signal is less severe.</p>
-                                <p><span class="text-slate-200 font-semibold">Info</span> means a metric may be notable, but it is still consistent with previous runs.</p>
-                                <p><span class="text-slate-200 font-semibold">Z-score</span> shows how far the run is from normal behavior. Bigger positive values mean a larger deviation.</p>
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            {% for group in statistical_metric_groups %}
+                            <div class="rounded-2xl border {{ group.panel_class }} p-5">
+                                <div class="flex items-start justify-between gap-3">
+                                    <div>
+                                        <p class="text-xs font-bold text-slate-400 uppercase tracking-wider">{{ group.title }}</p>
+                                        <p class="text-sm text-slate-500 mt-1">Worst stage: <span class="font-semibold text-slate-300">{{ group.worst_stage_label }}</span></p>
+                                    </div>
+                                    <span class="text-[10px] px-2 py-0.5 rounded-full font-bold uppercase {{ group.severity_badge_class }}">
+                                        {{ group.severity_label }}
+                                    </span>
+                                </div>
+                                <p class="text-xl font-black {{ group.severity_text_class }} mt-4">{{ group.current_vs_usual }}</p>
+                                <p class="text-sm font-semibold text-slate-300 mt-2">Change: {{ group.change_display }}</p>
+                                <p class="text-sm text-slate-500 mt-3">{{ group.insight }}</p>
+
+                                <details class="mt-4 rounded-xl border border-white/5 bg-white/2">
+                                    <summary class="cursor-pointer list-none px-4 py-3 text-sm font-semibold text-slate-300 flex items-center justify-between">
+                                        <span>View stage-level details</span>
+                                        <span class="text-xs text-slate-500">Build / Test / Deploy</span>
+                                    </summary>
+                                    <div class="overflow-x-auto border-t border-white/5">
+                                        <table class="w-full text-left">
+                                            <thead>
+                                                <tr class="text-[11px] font-bold text-slate-400 uppercase tracking-wider bg-slate-900/40">
+                                                    <th class="px-4 py-3">Stage</th>
+                                                    <th class="px-4 py-3">Current</th>
+                                                    <th class="px-4 py-3">Usual</th>
+                                                    <th class="px-4 py-3">Change</th>
+                                                    <th class="px-4 py-3">Z-Score</th>
+                                                    <th class="px-4 py-3 text-right">Severity</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody class="divide-y divide-white/5">
+                                                {% for row in group.rows %}
+                                                <tr class="hover:bg-white/5 transition-colors">
+                                                    <td class="px-4 py-3 text-slate-200 font-semibold">{{ row.stage_label }}</td>
+                                                    <td class="px-4 py-3 text-white">{{ row.current_display }}</td>
+                                                    <td class="px-4 py-3 text-slate-300">{{ row.baseline_display }}</td>
+                                                    <td class="px-4 py-3 text-slate-300">{{ row.change_display }}</td>
+                                                    <td class="px-4 py-3 text-slate-300">{{ row.z_score_display }}</td>
+                                                    <td class="px-4 py-3 text-right">
+                                                        <span class="text-[10px] px-2 py-0.5 rounded-full font-bold uppercase {{ row.severity_badge_class }}">
+                                                            {{ row.severity_label }}
+                                                        </span>
+                                                    </td>
+                                                </tr>
+                                                {% endfor %}
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </details>
                             </div>
+                            {% endfor %}
                         </div>
-                    </div>
-
-                    <div class="overflow-x-auto border-t border-white/5">
-                        <table class="w-full text-left">
-                            <thead>
-                                <tr class="text-[11px] font-bold text-slate-400 uppercase tracking-wider bg-slate-900/40">
-                                    <th class="px-6 py-4">Stage</th>
-                                    <th class="px-6 py-4">Metric</th>
-                                    <th class="px-6 py-4">Current</th>
-                                    <th class="px-6 py-4">Usual</th>
-                                    <th class="px-6 py-4">Change</th>
-                                    <th class="px-6 py-4">Z-Score</th>
-                                    <th class="px-6 py-4 text-right">Severity</th>
-                                </tr>
-                            </thead>
-
-                            <tbody class="divide-y divide-white/5">
-                                {% if anomaly_list %}
-                                    {% for anomaly in anomaly_list %}
-                                    <tr class="hover:bg-white/5 transition-colors">
-                                        <td class="px-6 py-4 text-slate-200 font-semibold">{{ anomaly.stage_label }}</td>
-                                        <td class="px-6 py-4 text-slate-300">{{ anomaly.metric_label }}</td>
-                                        <td class="px-6 py-4 text-white">{{ anomaly.current_display }}</td>
-                                        <td class="px-6 py-4 text-slate-300">{{ anomaly.baseline_display }}</td>
-                                        <td class="px-6 py-4 text-slate-300">{{ anomaly.percentage_change_display }}</td>
-                                        <td class="px-6 py-4 text-slate-300">{{ anomaly.z_score_display }}</td>
-                                        <td class="px-6 py-4 text-right">
-                                            <span class="text-[10px] px-2 py-0.5 rounded-full font-bold uppercase {% if anomaly.severity == 'critical' %}text-rose-300 bg-rose-500/10{% elif anomaly.severity == 'warning' %}text-amber-300 bg-amber-500/10{% else %}text-sky-300 bg-sky-500/10{% endif %}">
-                                                {{ anomaly.severity }}
-                                            </span>
-                                        </td>
-                                    </tr>
-                                    {% endfor %}
-                                {% else %}
-                                    <tr>
-                                        <td colspan="7" class="px-6 py-6 text-center text-slate-500">No major anomaly detected for this run.</td>
-                                    </tr>
-                                {% endif %}
-                            </tbody>
-                        </table>
                     </div>
                 </section>
 
@@ -808,6 +976,9 @@ HTML = """
                         <h2 class="text-2xl font-extrabold text-white">What does the Isolation Forest model see?</h2>
                         <p class="text-sm text-slate-600 mt-2">
                             Isolation Forest learns normal pipeline behavior from historical runs and flags unusual stage patterns across duration, CPU, energy, carbon, and overhead.
+                        </p>
+                        <p class="text-sm text-slate-500 mt-2">
+                            Statistical detection evaluates each metric independently. Isolation Forest evaluates the full multi-metric pattern, so results may differ.
                         </p>
                     </div>
 
@@ -1205,6 +1376,7 @@ def dashboard():
 
     dashboard_anomalies = deduplicate_anomalies(anomalies, allowed_metrics=PP1_ANOMALY_METRICS, limit=8)
     major_dashboard_anomalies = [item for item in dashboard_anomalies if item.get("severity") in {"critical", "warning"}]
+    statistical_metric_groups = build_statistical_metric_groups(summary, stage_baseline_df, dashboard_anomalies)
     anomaly_teaser = (
         dashboard_anomalies[0]["message"] if dashboard_anomalies else "No major anomaly detected for this run."
     )
@@ -1256,21 +1428,6 @@ def dashboard():
         if row["jenkins_stage_duration_captured"] else format_seconds(row["duration_seconds"]),
         axis=1,
     )
-
-    formatted_anomalies = []
-    for anomaly in dashboard_anomalies:
-        formatted_anomaly = dict(anomaly)
-        formatted_anomaly["stage_label"] = str(anomaly["stage"]).replace("_", " ").title()
-        formatted_anomaly["metric_label"] = metric_label(anomaly["metric"])
-        formatted_anomaly["current_display"] = format_metric_value(anomaly["metric"], anomaly["current_value"])
-        formatted_anomaly["baseline_display"] = format_metric_value(anomaly["metric"], anomaly["baseline_mean"])
-        formatted_anomaly["percentage_change_display"] = (
-            format_percent(anomaly["percentage_change"]) if anomaly["percentage_change"] is not None else "N/A"
-        )
-        formatted_anomaly["z_score_display"] = (
-            f"{float(anomaly['z_score']):.2f}" if anomaly["z_score"] is not None else "N/A"
-        )
-        formatted_anomalies.append(formatted_anomaly)
 
     formatted_ml_results = []
     for item in ml_anomaly.get("results", []):
@@ -1327,7 +1484,7 @@ def dashboard():
         baseline_run_count=baseline_run_count,
         anomaly_summary=anomaly_summary,
         comparison_rows=comparison_rows,
-        anomaly_list=formatted_anomalies,
+        statistical_metric_groups=statistical_metric_groups,
         ml_anomaly=formatted_ml_anomaly,
         major_anomaly_count=len(major_dashboard_anomalies),
     )
