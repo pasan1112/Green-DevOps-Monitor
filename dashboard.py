@@ -8,6 +8,7 @@ from intelligence import (
     calculate_pipeline_baseline,
     calculate_stage_baselines,
     calculate_sustainability_score,
+    detect_ml_anomalies,
     detect_stage_anomalies,
     summarize_anomalies,
 )
@@ -251,6 +252,11 @@ def format_count(value):
     return f"{numeric:.2f}"
 
 
+def format_decimal(value, decimals=4):
+    numeric = 0.0 if value is None or pd.isna(value) else float(value)
+    return f"{numeric:.{decimals}f}"
+
+
 def format_equivalent(value, unit_suffix, tiny_suffix):
     numeric = 0.0 if value is None or pd.isna(value) else float(value)
     if numeric < 0.01:
@@ -281,6 +287,17 @@ def metric_label(metric):
         "avg_cpu_percent": "Average CPU load",
     }
     return labels.get(metric, str(metric).replace("_", " ").title())
+
+
+def ml_status_color(status):
+    normalized = str(status).strip().lower()
+    if normalized == "critical":
+        return "rose"
+    if normalized == "warning":
+        return "amber"
+    if normalized == "warming up":
+        return "sky"
+    return "emerald"
 
 
 def deduplicate_anomalies(anomalies, allowed_metrics=None, limit=8):
@@ -787,6 +804,91 @@ HTML = """
 
                 <section class="glass-panel overflow-hidden">
                     <div class="px-6 py-5 border-b border-white/5 bg-white/2">
+                        <p class="text-xs font-bold text-emerald-300 uppercase tracking-[0.2em] mb-2">ML Anomaly Detection</p>
+                        <h2 class="text-2xl font-extrabold text-white">What does the Isolation Forest model see?</h2>
+                        <p class="text-sm text-slate-600 mt-2">
+                            Isolation Forest learns normal pipeline behavior from historical runs and flags unusual stage patterns across duration, CPU, energy, carbon, and overhead.
+                        </p>
+                    </div>
+
+                    <div class="p-6 space-y-6">
+                        <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
+                            <div class="glass-panel p-5">
+                                <p class="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Model</p>
+                                <p class="text-2xl font-black text-slate-200">{{ ml_anomaly.model }}</p>
+                                <p class="text-[11px] text-slate-500 mt-2">Prototype stage-level anomaly detection model</p>
+                            </div>
+
+                            <div class="glass-panel p-5">
+                                <p class="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Status</p>
+                                <p class="text-2xl font-black {% if ml_anomaly.status_color == 'rose' %}text-rose-300{% elif ml_anomaly.status_color == 'amber' %}text-amber-300{% elif ml_anomaly.status_color == 'sky' %}text-sky-300{% else %}text-emerald-300{% endif %}">{{ ml_anomaly.status }}</p>
+                                <p class="text-[11px] text-slate-500 mt-2">{{ ml_anomaly.message }}</p>
+                            </div>
+
+                            <div class="glass-panel p-5">
+                                <p class="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Historical Samples Used</p>
+                                <p class="text-2xl font-black text-slate-200">{{ ml_anomaly.historical_samples_used }}</p>
+                                <p class="text-[11px] text-slate-500 mt-2">Historical stage records used to fit the model</p>
+                            </div>
+
+                            <div class="glass-panel p-5">
+                                <p class="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Predicted Stage Results</p>
+                                <p class="text-2xl font-black text-slate-200">{{ ml_anomaly.results|length }}</p>
+                                <p class="text-[11px] text-slate-500 mt-2">Current run stages evaluated by the model</p>
+                            </div>
+                        </div>
+
+                        {% if ml_anomaly.status == 'Warming Up' %}
+                        <div class="rounded-2xl border border-sky-500/20 bg-sky-500/5 p-5 flex gap-4">
+                            <div class="mt-1"><i data-lucide="bot" class="w-5 h-5 text-sky-400"></i></div>
+                            <div>
+                                <h4 class="text-sm font-bold text-sky-300 mb-1">Model warming up</h4>
+                                <p class="text-xs text-sky-100/70 leading-relaxed">
+                                    Isolation Forest needs at least 10 historical stage records. Until then, the statistical anomaly model is currently the fallback.
+                                </p>
+                            </div>
+                        </div>
+                        {% endif %}
+
+                        <div class="overflow-x-auto rounded-2xl border border-white/5">
+                            <table class="w-full text-left">
+                                <thead>
+                                    <tr class="text-[11px] font-bold text-slate-400 uppercase tracking-wider bg-slate-900/40">
+                                        <th class="px-6 py-4">Stage</th>
+                                        <th class="px-6 py-4">Prediction</th>
+                                        <th class="px-6 py-4">Anomaly Score</th>
+                                        <th class="px-6 py-4">Severity</th>
+                                        <th class="px-6 py-4">Message</th>
+                                    </tr>
+                                </thead>
+                                <tbody class="divide-y divide-white/5">
+                                    {% if ml_anomaly.results %}
+                                        {% for item in ml_anomaly.results %}
+                                        <tr class="hover:bg-white/5 transition-colors">
+                                            <td class="px-6 py-4 text-slate-200 font-semibold">{{ item.stage_label }}</td>
+                                            <td class="px-6 py-4 text-slate-300">{{ item.prediction }}</td>
+                                            <td class="px-6 py-4 text-white font-mono">{{ item.anomaly_score_display }}</td>
+                                            <td class="px-6 py-4">
+                                                <span class="text-[10px] px-2 py-0.5 rounded-full font-bold uppercase {% if item.severity == 'critical' %}text-rose-300 bg-rose-500/10{% elif item.severity == 'warning' %}text-amber-300 bg-amber-500/10{% else %}text-emerald-300 bg-emerald-500/10{% endif %}">
+                                                    {{ item.severity }}
+                                                </span>
+                                            </td>
+                                            <td class="px-6 py-4 text-slate-300">{{ item.message }}</td>
+                                        </tr>
+                                        {% endfor %}
+                                    {% else %}
+                                        <tr>
+                                            <td colspan="5" class="px-6 py-6 text-center text-slate-500">No ML stage predictions available yet.</td>
+                                        </tr>
+                                    {% endif %}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </section>
+
+                <section class="glass-panel overflow-hidden">
+                    <div class="px-6 py-5 border-b border-white/5 bg-white/2">
                         <p class="text-xs font-bold text-emerald-300 uppercase tracking-[0.2em] mb-2">Baseline Comparison</p>
                         <h2 class="text-2xl font-extrabold text-white">How does this compare with normal behavior?</h2>
                         <p class="text-sm text-slate-600 mt-2">
@@ -1034,6 +1136,7 @@ def dashboard():
 
     current_run_df = df[df["run_id"] == selected_run].copy()
     historical_df = df[df["run_id"] != selected_run].copy()
+    ml_anomaly = detect_ml_anomalies(current_run_df, historical_df)
 
     baseline_run_count = int(historical_df["run_id"].nunique()) if not historical_df.empty else 0
     confidence_level = confidence_from_run_count(baseline_run_count)
@@ -1169,6 +1272,19 @@ def dashboard():
         )
         formatted_anomalies.append(formatted_anomaly)
 
+    formatted_ml_results = []
+    for item in ml_anomaly.get("results", []):
+        formatted_item = dict(item)
+        formatted_item["stage_label"] = str(item.get("stage", "unknown")).replace("_", " ").title()
+        formatted_item["anomaly_score_display"] = format_decimal(item.get("anomaly_score", 0.0), decimals=4)
+        formatted_ml_results.append(formatted_item)
+
+    formatted_ml_anomaly = dict(ml_anomaly)
+    formatted_ml_anomaly["model"] = ml_anomaly.get("model", "Isolation Forest")
+    formatted_ml_anomaly["historical_samples_used"] = int(ml_anomaly.get("historical_samples_used", 0))
+    formatted_ml_anomaly["status_color"] = ml_status_color(ml_anomaly.get("status", "Normal"))
+    formatted_ml_anomaly["results"] = formatted_ml_results
+
     return render_template_string(
         HTML,
         selected_run=selected_run,
@@ -1212,6 +1328,7 @@ def dashboard():
         anomaly_summary=anomaly_summary,
         comparison_rows=comparison_rows,
         anomaly_list=formatted_anomalies,
+        ml_anomaly=formatted_ml_anomaly,
         major_anomaly_count=len(major_dashboard_anomalies),
     )
 
