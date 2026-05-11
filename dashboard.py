@@ -590,6 +590,27 @@ def format_dashboard_anomaly(anomaly):
     )
     return formatted
 
+def format_ml_alert(item):
+    severity = normalize_display_severity(item.get("severity"))
+    theme = severity_theme(severity)
+    stage_label = str(item.get("stage", "unknown")).replace("_", " ").title()
+    score = item.get("anomaly_score", 0.0)
+
+    return {
+        "source": "Isolation Forest",
+        "severity": severity,
+        "severity_label": theme["label"],
+        "severity_badge_class": theme["badge_class"],
+        "metric_label": "ML anomaly score",
+        "stage_label": stage_label,
+        "current_display": format_decimal(score, decimals=4),
+        "baseline_display": "Learned normal pattern",
+        "percentage_change_display": "N/A",
+        "message": item.get(
+            "message",
+            f"{stage_label} was flagged by the Isolation Forest model."
+        ),
+    }
 
 HTML = """
 <!DOCTYPE html>
@@ -1382,7 +1403,7 @@ HTML = """
             <div class="flex items-center justify-between px-6 py-5 border-b border-slate-200">
                 <div>
                     <p class="text-xs font-bold uppercase tracking-[0.2em] text-rose-600">Critical Alerts</p>
-                    <h3 class="text-xl font-extrabold text-slate-900 mt-1">Statistical critical anomalies</h3>
+                    <h3 class="text-xl font-extrabold text-slate-900 mt-1">Critical alerts from statistical and ML models</h3>
                 </div>
                 <button type="button"
                         onclick="closeAlertModal('critical-alerts-modal')"
@@ -1399,6 +1420,7 @@ HTML = """
                                 <span class="text-[10px] px-2 py-0.5 rounded-full font-bold uppercase {{ alert.severity_badge_class }}">{{ alert.severity_label }}</span>
                                 <span class="text-sm font-semibold text-slate-800">{{ alert.metric_label }}</span>
                                 <span class="text-sm text-slate-500">Stage: {{ alert.stage_label }}</span>
+                                <span class="text-sm text-slate-500">Source: {{ alert.source }}</span>
                             </div>
                             <div class="grid grid-cols-1 md:grid-cols-3 gap-3 text-sm">
                                 <p class="text-slate-700"><span class="font-semibold">Current:</span> {{ alert.current_display }}</p>
@@ -1421,7 +1443,7 @@ HTML = """
             <div class="flex items-center justify-between px-6 py-5 border-b border-slate-200">
                 <div>
                     <p class="text-xs font-bold uppercase tracking-[0.2em] text-amber-600">Warnings</p>
-                    <h3 class="text-xl font-extrabold text-slate-900 mt-1">Statistical warning anomalies</h3>
+                    <h3 class="text-xl font-extrabold text-slate-900 mt-1">Warnings from statistical and ML models</h3>
                 </div>
                 <button type="button"
                         onclick="closeAlertModal('warning-alerts-modal')"
@@ -1438,6 +1460,7 @@ HTML = """
                                 <span class="text-[10px] px-2 py-0.5 rounded-full font-bold uppercase {{ alert.severity_badge_class }}">{{ alert.severity_label }}</span>
                                 <span class="text-sm font-semibold text-slate-800">{{ alert.metric_label }}</span>
                                 <span class="text-sm text-slate-500">Stage: {{ alert.stage_label }}</span>
+                                <span class="text-sm text-slate-500">Source: {{ alert.source }}</span>
                             </div>
                             <div class="grid grid-cols-1 md:grid-cols-3 gap-3 text-sm">
                                 <p class="text-slate-700"><span class="font-semibold">Current:</span> {{ alert.current_display }}</p>
@@ -1556,9 +1579,52 @@ def dashboard():
     dashboard_anomalies = deduplicate_anomalies(anomalies, allowed_metrics=PP1_ANOMALY_METRICS, limit=8)
     dashboard_anomalies = [normalize_dashboard_anomaly(item) for item in dashboard_anomalies]
     major_dashboard_anomalies = [item for item in dashboard_anomalies if item.get("severity") in {"critical", "warning"}]
-    formatted_alerts = [format_dashboard_anomaly(item) for item in dashboard_anomalies]
-    critical_alerts = [item for item in formatted_alerts if item.get("severity") == "critical"]
-    warning_alerts = [item for item in formatted_alerts if item.get("severity") == "warning"]
+    formatted_statistical_alerts = [
+    {
+        **format_dashboard_anomaly(item),
+        "source": "Statistical"
+    }
+    for item in dashboard_anomalies
+    if item.get("severity") in {"critical", "warning"}
+    ]
+    formatted_ml_alerts = [
+    format_ml_alert(item)
+    for item in ml_anomaly.get("results", [])
+    if normalize_display_severity(item.get("severity")) in {"critical", "warning"}
+    ]
+    formatted_alerts = formatted_statistical_alerts + formatted_ml_alerts
+    critical_alerts = [
+    item for item in formatted_alerts
+    if item.get("severity") == "critical"
+    ]
+    warning_alerts = [
+    item for item in formatted_alerts
+    if item.get("severity") == "warning"
+    ]
+    combined_critical_count = len(critical_alerts)
+    combined_warning_count = len(warning_alerts)
+
+    if combined_critical_count > 0:
+        anomaly_summary = {
+            "critical_count": combined_critical_count,
+            "warning_count": combined_warning_count,
+            "overall_status": "Critical",
+            "summary_message": f"{combined_critical_count} critical and {combined_warning_count} warning alert(s) detected across statistical and ML models.",
+        }
+    elif combined_warning_count > 0:
+            anomaly_summary = {
+            "critical_count": 0,
+            "warning_count": combined_warning_count,
+            "overall_status": "Warning",
+            "summary_message": f"{combined_warning_count} warning alert(s) detected across statistical and ML models.",
+        }
+    else:
+        anomaly_summary = {
+            "critical_count": 0,
+            "warning_count": 0,
+            "overall_status": "Normal",
+            "summary_message": "No statistical or ML anomaly alerts were detected.",
+        }
     statistical_metric_groups = build_statistical_metric_groups(summary, stage_baseline_df, dashboard_anomalies)
     anomaly_teaser = (
         dashboard_anomalies[0]["message"] if dashboard_anomalies else "No major anomaly detected for this run."
