@@ -4,9 +4,15 @@ import os
 
 import os
 
-os.environ.setdefault(
-    "MONGO_URI",
-    "mongodb://admin:<db_password>@ac-5adtlpz-shard-00-00.xxflzzs.mongodb.net:27017,ac-5adtlpz-shard-00-01.xxflzzs.mongodb.net:27017,ac-5adtlpz-shard-00-02.xxflzzs.mongodb.net:27017/?ssl=true&replicaSet=atlas-g0hboh-shard-0&authSource=admin&appName=Green-DevOps-Monitor"
+os.environ["MONGO_URI"] = (
+    "mongodb://admin:admin1234@"
+    "ac-5adtlpz-shard-00-00.xxflzzs.mongodb.net:27017,"
+    "ac-5adtlpz-shard-00-01.xxflzzs.mongodb.net:27017,"
+    "ac-5adtlpz-shard-00-02.xxflzzs.mongodb.net:27017/"
+    "?ssl=true"
+    "&replicaSet=atlas-g0hboh-shard-0"
+    "&authSource=admin"
+    "&appName=Green-DevOps-Monitor"
 )
 
 import pandas as pd
