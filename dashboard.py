@@ -268,10 +268,18 @@ def severity_rank(severity):
     ranks = {
         "critical": 0,
         "warning": 1,
-        "info": 2,
-        "normal": 3,
+        "normal": 2,
     }
-    return ranks.get(str(severity).lower(), 4)
+    return ranks.get(normalize_display_severity(severity), 3)
+
+
+def normalize_display_severity(severity):
+    normalized = str(severity or "normal").strip().lower()
+    if normalized == "info":
+        return "normal"
+    if normalized in {"critical", "warning", "normal"}:
+        return normalized
+    return "normal"
 
 
 def metric_label(metric):
@@ -290,18 +298,16 @@ def metric_label(metric):
 
 
 def ml_status_color(status):
-    normalized = str(status).strip().lower()
+    normalized = normalize_display_severity(status)
     if normalized == "critical":
         return "rose"
     if normalized == "warning":
         return "amber"
-    if normalized == "warming up":
-        return "sky"
     return "emerald"
 
 
 def severity_theme(severity):
-    normalized = str(severity or "normal").strip().lower()
+    normalized = normalize_display_severity(severity)
     themes = {
         "critical": {
             "label": "Critical",
@@ -314,12 +320,6 @@ def severity_theme(severity):
             "text_class": "text-amber-300",
             "badge_class": "text-amber-300 bg-amber-500/10",
             "panel_class": "border-amber-500/25 bg-amber-500/5",
-        },
-        "info": {
-            "label": "Info",
-            "text_class": "text-sky-300",
-            "badge_class": "text-sky-300 bg-sky-500/10",
-            "panel_class": "border-sky-500/25 bg-sky-500/5",
         },
         "normal": {
             "label": "Normal",
@@ -466,7 +466,7 @@ def build_statistical_metric_groups(summary_df, stage_baseline_df, anomalies):
             baseline_std = None if baseline_std is None or pd.isna(baseline_std) else float(baseline_std)
 
             anomaly = anomaly_lookup.get((stage, metric), {})
-            severity = str(anomaly.get("severity") or "normal").lower()
+            severity = normalize_display_severity(anomaly.get("severity"))
             percentage_change = anomaly.get("percentage_change")
             if percentage_change is None:
                 percentage_change = safe_percentage_change(current_value, baseline_mean)
@@ -560,6 +560,16 @@ def build_statistical_metric_groups(summary_df, stage_baseline_df, anomalies):
     return groups
 
 
+def normalize_dashboard_anomaly(anomaly):
+    normalized = dict(anomaly)
+    normalized_severity = normalize_display_severity(anomaly.get("severity"))
+    normalized["severity"] = normalized_severity
+    if normalized_severity == "normal":
+        stage_label = str(anomaly.get("stage", "unknown")).replace("_", " ").title()
+        normalized["message"] = f"{stage_label} is stable compared with baseline."
+    return normalized
+
+
 HTML = """
 <!DOCTYPE html>
 <html lang="en">
@@ -570,8 +580,6 @@ HTML = """
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script src="https://unpkg.com/lucide@latest"></script>
-    <meta http-equiv="refresh" content="15">
-
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&display=swap');
 
@@ -685,7 +693,12 @@ HTML = """
                 </p>
             </div>
 
-            <div class="flex gap-2 flex-wrap">
+            <div class="flex gap-2 flex-wrap items-center">
+                <a href="{{ refresh_url }}"
+                   class="inline-flex items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-2 text-sm font-semibold text-emerald-700 shadow-sm hover:bg-emerald-100 hover:border-emerald-300 transition-colors">
+                    <i data-lucide="refresh-cw" class="w-4 h-4"></i>
+                    <span>Refresh Data</span>
+                </a>
                 <div class="glass-panel px-4 py-2 flex items-center gap-2">
                     <span class="status-pulse bg-emerald-500"></span>
                     <span class="text-sm font-semibold text-slate-700">{{ data_source }}</span>
@@ -1375,6 +1388,7 @@ def dashboard():
     )
 
     dashboard_anomalies = deduplicate_anomalies(anomalies, allowed_metrics=PP1_ANOMALY_METRICS, limit=8)
+    dashboard_anomalies = [normalize_dashboard_anomaly(item) for item in dashboard_anomalies]
     major_dashboard_anomalies = [item for item in dashboard_anomalies if item.get("severity") in {"critical", "warning"}]
     statistical_metric_groups = build_statistical_metric_groups(summary, stage_baseline_df, dashboard_anomalies)
     anomaly_teaser = (
@@ -1432,6 +1446,9 @@ def dashboard():
     formatted_ml_results = []
     for item in ml_anomaly.get("results", []):
         formatted_item = dict(item)
+        formatted_item["severity"] = normalize_display_severity(item.get("severity"))
+        if formatted_item["severity"] == "normal" and item.get("severity") == "info":
+            formatted_item["message"] = "Stable compared with baseline."
         formatted_item["stage_label"] = str(item.get("stage", "unknown")).replace("_", " ").title()
         formatted_item["anomaly_score_display"] = format_decimal(item.get("anomaly_score", 0.0), decimals=4)
         formatted_ml_results.append(formatted_item)
@@ -1439,12 +1456,19 @@ def dashboard():
     formatted_ml_anomaly = dict(ml_anomaly)
     formatted_ml_anomaly["model"] = ml_anomaly.get("model", "Isolation Forest")
     formatted_ml_anomaly["historical_samples_used"] = int(ml_anomaly.get("historical_samples_used", 0))
-    formatted_ml_anomaly["status_color"] = ml_status_color(ml_anomaly.get("status", "Normal"))
+    formatted_ml_anomaly["status"] = (
+        ml_anomaly.get("status", "Normal")
+        if str(ml_anomaly.get("status", "")).strip().lower() == "warming up"
+        else severity_theme(ml_anomaly.get("status", "Normal"))["label"]
+    )
+    formatted_ml_anomaly["status_color"] = ml_status_color(formatted_ml_anomaly["status"])
     formatted_ml_anomaly["results"] = formatted_ml_results
+    refresh_url = f"/?run_id={selected_run}" if selected_run else "/"
 
     return render_template_string(
         HTML,
         selected_run=selected_run,
+        refresh_url=refresh_url,
         data_source=data_source,
         runs=run_summary.to_dict(orient="records"),
         total_energy=total_energy,
