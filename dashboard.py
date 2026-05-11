@@ -2,6 +2,13 @@ from flask import Flask, render_template_string, request
 import json
 import os
 
+import os
+
+os.environ.setdefault(
+    "MONGO_URI",
+    "mongodb+srv://admin:admin1234@green-devops-monitor.xxflzzs.mongodb.net/"
+    "?retryWrites=true&w=majority&appName=Green-DevOps-Monitor"
+)
 import pandas as pd
 
 from intelligence import (
