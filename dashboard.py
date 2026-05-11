@@ -6,7 +6,7 @@ import os
 
 os.environ.setdefault(
     "MONGO_URI",
-    "mongodb+srv://admin:admin1234@green-devops-monitor.xxflzzs.mongodb.net/?appName=Green-DevOps-Monitor"
+    "mongodb://admin:<db_password>@ac-5adtlpz-shard-00-00.xxflzzs.mongodb.net:27017,ac-5adtlpz-shard-00-01.xxflzzs.mongodb.net:27017,ac-5adtlpz-shard-00-02.xxflzzs.mongodb.net:27017/?ssl=true&replicaSet=atlas-g0hboh-shard-0&authSource=admin&appName=Green-DevOps-Monitor"
 )
 
 import pandas as pd
