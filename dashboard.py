@@ -914,7 +914,7 @@ HTML = """
                         </p>
                     </div>
 
-                    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                         <div class="glass-panel p-5 relative overflow-hidden group">
                             <div class="absolute -right-2 -bottom-2 opacity-5 transition-transform group-hover:scale-110">
                                 <i data-lucide="zap" class="w-24 h-24 text-emerald-400"></i>
