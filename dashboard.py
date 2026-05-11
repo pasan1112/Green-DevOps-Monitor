@@ -570,6 +570,27 @@ def normalize_dashboard_anomaly(anomaly):
     return normalized
 
 
+def format_dashboard_anomaly(anomaly):
+    formatted = dict(anomaly)
+    normalized_severity = normalize_display_severity(anomaly.get("severity"))
+    theme = severity_theme(normalized_severity)
+    formatted["severity"] = normalized_severity
+    formatted["severity_label"] = theme["label"]
+    formatted["severity_badge_class"] = theme["badge_class"]
+    formatted["stage_label"] = str(anomaly.get("stage", "unknown")).replace("_", " ").title()
+    formatted["metric_label"] = metric_label(anomaly.get("metric"))
+    formatted["current_display"] = format_metric_value(anomaly.get("metric"), anomaly.get("current_value"))
+    baseline_value = anomaly.get("baseline_mean")
+    formatted["baseline_display"] = (
+        format_metric_value(anomaly.get("metric"), baseline_value) if baseline_value is not None else "Baseline unavailable"
+    )
+    percentage_change = anomaly.get("percentage_change")
+    formatted["percentage_change_display"] = (
+        format_percent(percentage_change) if percentage_change is not None else "N/A"
+    )
+    return formatted
+
+
 HTML = """
 <!DOCTYPE html>
 <html lang="en">
@@ -672,6 +693,36 @@ HTML = """
         .bg-emerald-500\\/20 { background: rgba(16, 185, 129, 0.12) !important; }
         .bg-rose-500\\/20 { background: rgba(244, 63, 94, 0.12) !important; }
         table tbody tr:hover { background: #f8fafc !important; }
+
+        .modal-overlay {
+            position: fixed;
+            inset: 0;
+            background: rgba(15, 23, 42, 0.48);
+            display: none;
+            align-items: center;
+            justify-content: center;
+            padding: 24px;
+            z-index: 1000;
+        }
+
+        .modal-overlay.is-open {
+            display: flex;
+        }
+
+        .modal-panel {
+            width: min(960px, 100%);
+            max-height: 85vh;
+            overflow: hidden;
+            background: #ffffff;
+            border: 1px solid #e2e8f0;
+            border-radius: 1rem;
+            box-shadow: 0 24px 60px rgba(15, 23, 42, 0.22);
+        }
+
+        .modal-scroll {
+            max-height: calc(85vh - 88px);
+            overflow-y: auto;
+        }
     </style>
 </head>
 
@@ -785,7 +836,20 @@ HTML = """
                                 <i data-lucide="triangle-alert" class="w-4 h-4 {% if anomaly_summary.overall_status == 'Critical' %}text-rose-400{% elif anomaly_summary.overall_status == 'Warning' %}text-amber-400{% else %}text-emerald-400{% endif %}"></i>
                             </div>
                             <p class="text-3xl font-black {% if anomaly_summary.overall_status == 'Critical' %}text-rose-300{% elif anomaly_summary.overall_status == 'Warning' %}text-amber-300{% else %}text-emerald-300{% endif %}">{{ anomaly_summary.overall_status }}</p>
-                            <p class="text-sm font-semibold text-slate-300 mt-1">{{ anomaly_summary.critical_count }} critical / {{ anomaly_summary.warning_count }} warning</p>
+                            <div class="flex flex-wrap gap-2 mt-2">
+                                <button type="button"
+                                        onclick="openAlertModal('critical-alerts-modal')"
+                                        class="inline-flex items-center gap-2 rounded-full border border-rose-200 bg-rose-50 px-3 py-1 text-xs font-bold uppercase tracking-wide text-rose-700 hover:bg-rose-100 transition-colors">
+                                    <span>{{ anomaly_summary.critical_count }}</span>
+                                    <span>Critical</span>
+                                </button>
+                                <button type="button"
+                                        onclick="openAlertModal('warning-alerts-modal')"
+                                        class="inline-flex items-center gap-2 rounded-full border border-amber-200 bg-amber-50 px-3 py-1 text-xs font-bold uppercase tracking-wide text-amber-700 hover:bg-amber-100 transition-colors">
+                                    <span>{{ anomaly_summary.warning_count }}</span>
+                                    <span>Warning</span>
+                                </button>
+                            </div>
                             <p class="text-[11px] text-slate-500 mt-2">{{ anomaly_summary.summary_message }}</p>
                         </div>
 
@@ -1287,7 +1351,109 @@ HTML = """
             },
             options: chartConfig
         });
+
+        function openAlertModal(modalId) {
+            const modal = document.getElementById(modalId);
+            if (!modal) return;
+            modal.classList.add("is-open");
+            document.body.style.overflow = "hidden";
+        }
+
+        function closeAlertModal(modalId) {
+            const modal = document.getElementById(modalId);
+            if (!modal) return;
+            modal.classList.remove("is-open");
+            if (!document.querySelector(".modal-overlay.is-open")) {
+                document.body.style.overflow = "";
+            }
+        }
+
+        document.addEventListener("keydown", function(event) {
+            if (event.key !== "Escape") return;
+            document.querySelectorAll(".modal-overlay.is-open").forEach(function(modal) {
+                modal.classList.remove("is-open");
+            });
+            document.body.style.overflow = "";
+        });
     </script>
+
+    <div id="critical-alerts-modal" class="modal-overlay" onclick="if (event.target === this) closeAlertModal('critical-alerts-modal')">
+        <div class="modal-panel">
+            <div class="flex items-center justify-between px-6 py-5 border-b border-slate-200">
+                <div>
+                    <p class="text-xs font-bold uppercase tracking-[0.2em] text-rose-600">Critical Alerts</p>
+                    <h3 class="text-xl font-extrabold text-slate-900 mt-1">Statistical critical anomalies</h3>
+                </div>
+                <button type="button"
+                        onclick="closeAlertModal('critical-alerts-modal')"
+                        class="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-600 hover:bg-slate-50 transition-colors">
+                    Close
+                </button>
+            </div>
+            <div class="modal-scroll px-6 py-5">
+                {% if critical_alerts %}
+                    <div class="space-y-4">
+                        {% for alert in critical_alerts %}
+                        <div class="rounded-2xl border border-rose-200 bg-rose-50 p-4">
+                            <div class="flex flex-wrap items-center gap-2 mb-3">
+                                <span class="text-[10px] px-2 py-0.5 rounded-full font-bold uppercase {{ alert.severity_badge_class }}">{{ alert.severity_label }}</span>
+                                <span class="text-sm font-semibold text-slate-800">{{ alert.metric_label }}</span>
+                                <span class="text-sm text-slate-500">Stage: {{ alert.stage_label }}</span>
+                            </div>
+                            <div class="grid grid-cols-1 md:grid-cols-3 gap-3 text-sm">
+                                <p class="text-slate-700"><span class="font-semibold">Current:</span> {{ alert.current_display }}</p>
+                                <p class="text-slate-700"><span class="font-semibold">Baseline:</span> {{ alert.baseline_display }}</p>
+                                <p class="text-slate-700"><span class="font-semibold">Change:</span> {{ alert.percentage_change_display }}</p>
+                            </div>
+                            <p class="text-sm text-slate-600 mt-3">{{ alert.message }}</p>
+                        </div>
+                        {% endfor %}
+                    </div>
+                {% else %}
+                    <p class="text-sm text-slate-500">No alerts in this category.</p>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+
+    <div id="warning-alerts-modal" class="modal-overlay" onclick="if (event.target === this) closeAlertModal('warning-alerts-modal')">
+        <div class="modal-panel">
+            <div class="flex items-center justify-between px-6 py-5 border-b border-slate-200">
+                <div>
+                    <p class="text-xs font-bold uppercase tracking-[0.2em] text-amber-600">Warnings</p>
+                    <h3 class="text-xl font-extrabold text-slate-900 mt-1">Statistical warning anomalies</h3>
+                </div>
+                <button type="button"
+                        onclick="closeAlertModal('warning-alerts-modal')"
+                        class="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-600 hover:bg-slate-50 transition-colors">
+                    Close
+                </button>
+            </div>
+            <div class="modal-scroll px-6 py-5">
+                {% if warning_alerts %}
+                    <div class="space-y-4">
+                        {% for alert in warning_alerts %}
+                        <div class="rounded-2xl border border-amber-200 bg-amber-50 p-4">
+                            <div class="flex flex-wrap items-center gap-2 mb-3">
+                                <span class="text-[10px] px-2 py-0.5 rounded-full font-bold uppercase {{ alert.severity_badge_class }}">{{ alert.severity_label }}</span>
+                                <span class="text-sm font-semibold text-slate-800">{{ alert.metric_label }}</span>
+                                <span class="text-sm text-slate-500">Stage: {{ alert.stage_label }}</span>
+                            </div>
+                            <div class="grid grid-cols-1 md:grid-cols-3 gap-3 text-sm">
+                                <p class="text-slate-700"><span class="font-semibold">Current:</span> {{ alert.current_display }}</p>
+                                <p class="text-slate-700"><span class="font-semibold">Baseline:</span> {{ alert.baseline_display }}</p>
+                                <p class="text-slate-700"><span class="font-semibold">Change:</span> {{ alert.percentage_change_display }}</p>
+                            </div>
+                            <p class="text-sm text-slate-600 mt-3">{{ alert.message }}</p>
+                        </div>
+                        {% endfor %}
+                    </div>
+                {% else %}
+                    <p class="text-sm text-slate-500">No alerts in this category.</p>
+                {% endif %}
+            </div>
+        </div>
+    </div>
 </body>
 </html>
 """
@@ -1390,6 +1556,9 @@ def dashboard():
     dashboard_anomalies = deduplicate_anomalies(anomalies, allowed_metrics=PP1_ANOMALY_METRICS, limit=8)
     dashboard_anomalies = [normalize_dashboard_anomaly(item) for item in dashboard_anomalies]
     major_dashboard_anomalies = [item for item in dashboard_anomalies if item.get("severity") in {"critical", "warning"}]
+    formatted_alerts = [format_dashboard_anomaly(item) for item in dashboard_anomalies]
+    critical_alerts = [item for item in formatted_alerts if item.get("severity") == "critical"]
+    warning_alerts = [item for item in formatted_alerts if item.get("severity") == "warning"]
     statistical_metric_groups = build_statistical_metric_groups(summary, stage_baseline_df, dashboard_anomalies)
     anomaly_teaser = (
         dashboard_anomalies[0]["message"] if dashboard_anomalies else "No major anomaly detected for this run."
@@ -1509,6 +1678,8 @@ def dashboard():
         anomaly_summary=anomaly_summary,
         comparison_rows=comparison_rows,
         statistical_metric_groups=statistical_metric_groups,
+        critical_alerts=critical_alerts,
+        warning_alerts=warning_alerts,
         ml_anomaly=formatted_ml_anomaly,
         major_anomaly_count=len(major_dashboard_anomalies),
     )
