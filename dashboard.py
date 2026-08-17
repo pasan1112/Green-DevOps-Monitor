@@ -1,4 +1,4 @@
-from flask import Flask, render_template_string, request
+from flask import Flask, abort, render_template_string, request
 import json
 import os
 
@@ -644,8 +644,8 @@ def build_lifecycle_sections(display_rows, statistical_alerts, ml_results):
             "key": "release",
             "label": "Release",
             "icon": "package-check",
-            "source_stages": ["build", "test"],
-            "note": "Current monitor data mapped from available Build/Test records until PP2 release component data is integrated.",
+            "source_stages": [],
+            "note": "Not available until Release component integration. Existing Build/Test monitor records are preserved but not presented as Release outputs.",
         },
         {
             "key": "deploy",
@@ -682,6 +682,16 @@ def build_lifecycle_sections(display_rows, statistical_alerts, ml_results):
         warning_count = sum(1 for alert in stat_alerts if alert.get("severity") == "warning")
         critical_count += sum(1 for item in ml_items if item.get("severity") == "critical")
         warning_count += sum(1 for item in ml_items if item.get("severity") == "warning")
+        total_energy = sum(float(row.get("total_energy_kwh") or 0.0) for row in rows)
+        total_carbon = sum(float(row.get("total_carbon_kg") or 0.0) for row in rows)
+        workload_duration = sum(float(row.get("workload_duration_seconds") or 0.0) for row in rows)
+        failed = any(str(row.get("status", "")).lower() == "failed" for row in rows)
+        summary_status = "Failed" if failed else ("Available" if rows else "Not available")
+        summary_text = (
+            f"{len(rows)} existing Monitor stage record(s), {format_seconds(workload_duration)} workload duration."
+            if rows
+            else "Not available until component integration."
+        )
 
         sections.append(
             {
@@ -692,6 +702,10 @@ def build_lifecycle_sections(display_rows, statistical_alerts, ml_results):
                 "critical_count": critical_count,
                 "warning_count": warning_count,
                 "has_data": bool(rows),
+                "summary_status": summary_status,
+                "summary_text": summary_text,
+                "energy_display": format_kwh(total_energy) if rows else "Not available",
+                "carbon_display": format_gco2_from_kg(total_carbon) if rows else "Not available",
             }
         )
 
@@ -2133,54 +2147,280 @@ HTML = """
 """
 
 
-@app.route("/")
-def dashboard():
+APP_HTML = """
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Green DevOps Monitor</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&display=swap');
+        body { font-family: 'Plus Jakarta Sans', sans-serif; background: #f8fafc; color: #0f172a; min-height: 100vh; }
+        .panel { background: #fff; border: 1px solid #e2e8f0; border-radius: 1rem; box-shadow: 0 12px 30px rgba(15, 23, 42, 0.08); }
+        .status-pulse { width: 8px; height: 8px; border-radius: 50%; display: inline-block; animation: pulse 2s infinite; }
+        @keyframes pulse { 0% { box-shadow: 0 0 0 0 rgba(34, 197, 94, .55); } 70% { box-shadow: 0 0 0 10px rgba(34, 197, 94, 0); } 100% { box-shadow: 0 0 0 0 rgba(34, 197, 94, 0); } }
+    </style>
+</head>
+<body class="p-4 md:p-8">
+    <div class="max-w-[1500px] mx-auto space-y-6">
+        <header class="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
+            <a href="/" class="flex items-center gap-3">
+                <span class="p-2 bg-emerald-100 rounded-lg"><i data-lucide="leaf" class="w-8 h-8 text-emerald-600"></i></span>
+                <span>
+                    <span class="block text-3xl font-extrabold tracking-tight text-slate-900">Green DevOps Monitor</span>
+                    <span class="block text-sm text-slate-600 font-medium">Centralized sustainability intelligence for Release, Deploy, and Operate</span>
+                </span>
+            </a>
+            <div class="flex flex-wrap items-center gap-2">
+                <a href="/" class="rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50">Home</a>
+                <a href="/runs" class="rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50">Runs</a>
+                <div class="panel px-4 py-2 flex items-center gap-2">
+                    <span class="status-pulse bg-emerald-500"></span>
+                    <span class="text-sm font-semibold text-slate-700">{{ data_source }}</span>
+                </div>
+            </div>
+        </header>
+
+        {% if page == 'home' %}
+        <main class="space-y-6">
+            <section>
+                <p class="text-xs font-bold uppercase tracking-[0.2em] text-emerald-600">Home</p>
+                <h1 class="text-3xl font-extrabold text-slate-900 mt-2">System sustainability overview</h1>
+                <p class="text-sm text-slate-600 mt-1">What is happening with the Green DevOps pipeline overall?</p>
+            </section>
+            <section class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
+                <div class="panel p-5"><p class="text-xs font-bold uppercase text-slate-500">Total Energy</p><p class="text-3xl font-black text-emerald-600 mt-2">{{ system_total_energy_display }}</p></div>
+                <div class="panel p-5"><p class="text-xs font-bold uppercase text-slate-500">Total Carbon</p><p class="text-3xl font-black text-sky-600 mt-2">{{ system_total_carbon_display }}</p></div>
+                <div class="panel p-5"><p class="text-xs font-bold uppercase text-slate-500">Average Sustainability Health</p><p class="text-3xl font-black text-slate-900 mt-2">{{ average_health_score }}<span class="text-sm text-slate-500">/100</span></p></div>
+                <div class="panel p-5"><p class="text-xs font-bold uppercase text-slate-500">Total Pipeline Runs</p><p class="text-3xl font-black text-slate-900 mt-2">{{ system_run_count }}</p></div>
+            </section>
+            <section class="grid grid-cols-1 xl:grid-cols-3 gap-6">
+                <div class="xl:col-span-2 panel p-6">
+                    <h2 class="text-sm font-bold uppercase tracking-wider text-slate-800 mb-5">Overall Sustainability Trends</h2>
+                    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                        <div class="h-[250px]"><canvas id="runEnergyChart"></canvas></div>
+                        <div class="h-[250px]"><canvas id="runCarbonChart"></canvas></div>
+                    </div>
+                </div>
+                <div class="panel p-6">
+                    <div class="flex items-center justify-between mb-4">
+                        <h2 class="text-sm font-bold uppercase tracking-wider text-slate-800">Recent Pipeline Runs</h2>
+                        <a href="/runs" class="text-xs font-bold text-emerald-700 hover:text-emerald-800">View all</a>
+                    </div>
+                    <div class="space-y-3">
+                        {% for run in recent_runs %}
+                        <a href="/run/{{ run.run_id|urlencode }}" class="block rounded-xl border border-slate-200 p-3 hover:bg-slate-50">
+                            <div class="flex items-center justify-between gap-3">
+                                <span class="text-sm font-bold text-slate-800 truncate">Run #{{ run.run_id }}</span>
+                                <span class="text-[10px] font-bold uppercase {% if run.status == 'success' %}text-emerald-700{% else %}text-rose-700{% endif %}">{{ run.status }}</span>
+                            </div>
+                            <p class="text-xs text-slate-500 mt-1">{{ run.duration_display }} | {{ run.total_energy_display }} | {{ run.total_carbon_display }} | Health {{ run.health_score }}/100</p>
+                        </a>
+                        {% endfor %}
+                    </div>
+                </div>
+            </section>
+        </main>
+        {% elif page == 'runs' %}
+        <main class="space-y-6">
+            <div>
+                <a href="/" class="text-sm font-semibold text-emerald-700 hover:text-emerald-800">&larr; Home</a>
+                <h1 class="text-3xl font-extrabold text-slate-900 mt-3">Pipeline runs</h1>
+                <p class="text-sm text-slate-600 mt-1">Historical pipeline executions from the existing Monitor data source.</p>
+            </div>
+            <section class="panel overflow-hidden">
+                <div class="overflow-x-auto">
+                    <table class="w-full text-left">
+                        <thead><tr class="text-[11px] uppercase tracking-wider text-slate-500 bg-slate-50">
+                            <th class="px-5 py-4">Run ID</th><th class="px-5 py-4">Status</th><th class="px-5 py-4">Start</th><th class="px-5 py-4">End</th><th class="px-5 py-4">Duration</th><th class="px-5 py-4">Energy</th><th class="px-5 py-4">Carbon</th><th class="px-5 py-4">Health</th><th class="px-5 py-4">Alerts</th><th class="px-5 py-4 text-right">Action</th>
+                        </tr></thead>
+                        <tbody class="divide-y divide-slate-200">
+                            {% for run in runs %}
+                            <tr>
+                                <td class="px-5 py-4 font-bold text-slate-800">#{{ run.run_id }}</td>
+                                <td class="px-5 py-4"><span class="text-[10px] px-2 py-1 rounded-full font-bold uppercase {% if run.status == 'success' %}bg-emerald-100 text-emerald-700{% else %}bg-rose-100 text-rose-700{% endif %}">{{ run.status }}</span></td>
+                                <td class="px-5 py-4 text-sm text-slate-600">{{ run.start_time_display }}</td>
+                                <td class="px-5 py-4 text-sm text-slate-600">{{ run.end_time_display }}</td>
+                                <td class="px-5 py-4 text-sm text-slate-700">{{ run.duration_display }}</td>
+                                <td class="px-5 py-4 text-sm font-mono text-emerald-700">{{ run.total_energy_display }}</td>
+                                <td class="px-5 py-4 text-sm font-mono text-sky-700">{{ run.total_carbon_display }}</td>
+                                <td class="px-5 py-4 text-sm font-bold text-slate-800">{{ run.health_score }}/100</td>
+                                <td class="px-5 py-4 text-sm text-slate-700">{{ run.alert_count }}</td>
+                                <td class="px-5 py-4 text-right"><a href="/run/{{ run.run_id|urlencode }}" class="inline-flex rounded-lg bg-emerald-600 px-3 py-2 text-xs font-bold text-white hover:bg-emerald-700">View</a></td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+        </main>
+        {% elif page == 'run' %}
+        <main class="space-y-6">
+            <div>
+                <a href="/runs" class="text-sm font-semibold text-emerald-700 hover:text-emerald-800">&larr; Back to Runs</a>
+                <div class="flex flex-col md:flex-row md:items-start md:justify-between gap-3 mt-3">
+                    <div><p class="text-xs font-bold uppercase tracking-[0.2em] text-emerald-600">Run Overview</p><h1 class="text-3xl font-extrabold text-slate-900 mt-1">Run #{{ selected_run }}</h1><p class="text-sm text-slate-600 mt-1">{{ pipeline_name }}</p></div>
+                    <span class="self-start text-xs px-3 py-1 rounded-full font-bold uppercase {% if selected_run_status == 'success' %}bg-emerald-100 text-emerald-700{% else %}bg-rose-100 text-rose-700{% endif %}">{{ selected_run_status }}</span>
+                </div>
+            </div>
+            <section class="panel p-6">
+                <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-5">
+                    <div><p class="text-xs font-bold uppercase text-slate-500">Start Time</p><p class="text-sm font-semibold text-slate-800 mt-1">{{ selected_run_start }}</p></div>
+                    <div><p class="text-xs font-bold uppercase text-slate-500">End Time</p><p class="text-sm font-semibold text-slate-800 mt-1">{{ selected_run_end }}</p></div>
+                    <div><p class="text-xs font-bold uppercase text-slate-500">Duration</p><p class="text-xl font-black text-slate-900 mt-1">{{ selected_run_duration_display }}</p></div>
+                    <div><p class="text-xs font-bold uppercase text-slate-500">Health Score</p><p class="text-xl font-black text-slate-900 mt-1">{{ health_score.score }}/100</p></div>
+                    <div><p class="text-xs font-bold uppercase text-slate-500">Total Energy</p><p class="text-xl font-black text-emerald-600 mt-1">{{ total_energy_display }}</p></div>
+                    <div><p class="text-xs font-bold uppercase text-slate-500">Total Carbon</p><p class="text-xl font-black text-sky-600 mt-1">{{ total_carbon_display }}</p></div>
+                    <div><p class="text-xs font-bold uppercase text-slate-500">Warnings</p><p class="text-xl font-black text-amber-600 mt-1">{{ anomaly_summary.warning_count }}</p></div>
+                    <div><p class="text-xs font-bold uppercase text-slate-500">Critical</p><p class="text-xl font-black text-rose-600 mt-1">{{ anomaly_summary.critical_count }}</p></div>
+                </div>
+            </section>
+            <section class="space-y-4">
+                <div><p class="text-xs font-bold uppercase tracking-[0.2em] text-emerald-600">Select a Stage</p><h2 class="text-2xl font-extrabold text-slate-900 mt-1">Release | Deploy | Operate</h2></div>
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    {% for stage in lifecycle_sections %}
+                    <div class="panel p-5">
+                        <div class="flex items-center justify-between">
+                            <div class="flex items-center gap-2"><i data-lucide="{{ stage.icon }}" class="w-5 h-5 text-emerald-600"></i><h3 class="font-extrabold text-slate-900">{{ stage.label }}</h3></div>
+                            <span class="text-xs font-semibold text-slate-500">{{ stage.summary_status }}</span>
+                        </div>
+                        <p class="text-xs text-slate-500 mt-3">{{ stage.summary_text }}</p>
+                        <div class="grid grid-cols-2 gap-3 mt-4 text-sm">
+                            <div><p class="text-xs uppercase font-bold text-slate-500">Energy</p><p class="font-bold text-slate-800">{{ stage.energy_display }}</p></div>
+                            <div><p class="text-xs uppercase font-bold text-slate-500">Carbon</p><p class="font-bold text-slate-800">{{ stage.carbon_display }}</p></div>
+                        </div>
+                        <a href="/run/{{ selected_run|urlencode }}/{{ stage.key }}" class="mt-5 inline-flex items-center gap-2 rounded-lg bg-emerald-600 px-3 py-2 text-xs font-bold text-white hover:bg-emerald-700">View Stage <i data-lucide="arrow-right" class="w-3 h-3"></i></a>
+                    </div>
+                    {% endfor %}
+                </div>
+            </section>
+        </main>
+        {% elif page == 'stage' %}
+        <main class="space-y-6">
+            <div><a href="/run/{{ selected_run|urlencode }}" class="text-sm font-semibold text-emerald-700 hover:text-emerald-800">&larr; Back to Run #{{ selected_run }}</a><p class="text-xs font-bold uppercase tracking-[0.2em] text-emerald-600 mt-4">Stage Detail</p><h1 class="text-3xl font-extrabold text-slate-900 mt-1">{{ stage_detail.label }}</h1><p class="text-sm text-slate-600 mt-1">{{ stage_detail.note }}</p></div>
+            <section class="panel p-6">
+                <h2 class="text-lg font-extrabold text-slate-900">Stage execution information</h2>
+                {% if stage_detail.rows %}
+                <div class="overflow-x-auto mt-4"><table class="w-full text-left"><thead><tr class="text-[11px] uppercase tracking-wider text-slate-500 bg-slate-50"><th class="px-4 py-3">Monitor Stage</th><th class="px-4 py-3">Status</th><th class="px-4 py-3">Workload</th><th class="px-4 py-3">Full Duration</th><th class="px-4 py-3">Overhead</th><th class="px-4 py-3">CPU</th><th class="px-4 py-3">Energy</th><th class="px-4 py-3">Carbon</th></tr></thead><tbody class="divide-y divide-slate-200">{% for row in stage_detail.rows %}<tr><td class="px-4 py-3 font-bold">{{ row.stage_label }}</td><td class="px-4 py-3">{{ row.status }}</td><td class="px-4 py-3">{{ row.workload_duration_display }}</td><td class="px-4 py-3">{{ row.full_duration_display }}</td><td class="px-4 py-3">{{ row.overhead_percentage_display }}</td><td class="px-4 py-3">{{ row.avg_cpu_display }}</td><td class="px-4 py-3 font-mono text-emerald-700">{{ row.total_energy_display }}</td><td class="px-4 py-3 font-mono text-sky-700">{{ row.total_carbon_display }}</td></tr>{% endfor %}</tbody></table></div>
+                {% else %}<p class="text-sm text-slate-500 mt-3">Not available until component integration.</p>{% endif %}
+            </section>
+            <section class="panel p-6"><h2 class="text-lg font-extrabold text-slate-900">Component-specific information</h2><p class="text-sm text-slate-500 mt-2">Component-specific results will be displayed here after integration.</p></section>
+            <section class="panel p-6">
+                <h2 class="text-lg font-extrabold text-slate-900">Monitor sustainability information</h2>
+                {% if stage_detail.rows %}<div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4 mt-4">{% for row in stage_detail.rows %}<div class="rounded-xl border border-slate-200 p-4"><p class="text-sm font-bold text-slate-800">{{ row.stage_label }}</p><p class="text-xs text-slate-500 mt-2">Peak CPU: {{ row.peak_cpu_display }}</p><p class="text-xs text-slate-500">Carbon intensity: {{ row.carbon_intensity_display }}</p><p class="text-xs text-slate-500">Infrastructure overhead: {{ row.overhead_percentage_display }}</p></div>{% endfor %}</div>{% else %}<p class="text-sm text-slate-500 mt-3">Not available until component integration.</p>{% endif %}
+            </section>
+            <section class="panel p-6">
+                <h2 class="text-lg font-extrabold text-slate-900">Monitor Intelligence</h2>
+                <div class="grid grid-cols-1 lg:grid-cols-3 gap-4 mt-4">
+                    <div class="rounded-xl border border-slate-200 p-4"><p class="text-sm font-bold text-slate-800">Statistical Anomaly Detection</p>{% if stage_detail.statistical_alerts %}{% for alert in stage_detail.statistical_alerts %}<p class="text-xs text-slate-600 mt-2"><span class="font-bold">{{ alert.severity_label }}:</span> {{ alert.message }}</p>{% endfor %}{% else %}<p class="text-xs text-slate-500 mt-2">Normal. No warning or critical statistical anomalies for the selected stage data.</p>{% endif %}</div>
+                    <div class="rounded-xl border border-slate-200 p-4"><p class="text-sm font-bold text-slate-800">Isolation Forest</p>{% if stage_detail.ml_results %}{% for item in stage_detail.ml_results %}<p class="text-xs text-slate-600 mt-2"><span class="font-bold">{{ item.stage_label }}:</span> {{ item.prediction }} | {{ item.model_status }} | Samples {{ item.historical_samples }} | Score {{ item.anomaly_score_display }}</p>{% endfor %}{% else %}<p class="text-xs text-slate-500 mt-2">Warming Up / Not available until component integration.</p>{% endif %}</div>
+                    <div class="rounded-xl border border-slate-200 p-4"><p class="text-sm font-bold text-slate-800">Sustainability Health</p><p class="text-2xl font-black text-slate-900 mt-2">{{ health_score.score }}/100</p><p class="text-xs text-slate-500 mt-1">{{ health_score.grade }}. {{ health_score.explanation }}</p></div>
+                </div>
+            </section>
+        </main>
+        {% endif %}
+    </div>
+    <script>
+        lucide.createIcons();
+        {% if page == 'home' %}
+        Chart.defaults.font.family = "'Plus Jakarta Sans', sans-serif";
+        const runLabels = {{ run_chart_labels | safe }};
+        new Chart(document.getElementById("runEnergyChart"), { type: "line", data: { labels: runLabels, datasets: [{ label: "Energy kWh", data: {{ run_energy_values | safe }}, borderColor: "rgba(16, 185, 129, 1)", backgroundColor: "rgba(16, 185, 129, .12)", fill: true, tension: .35 }] }, options: { responsive: true, maintainAspectRatio: false } });
+        new Chart(document.getElementById("runCarbonChart"), { type: "line", data: { labels: runLabels, datasets: [{ label: "Carbon kgCO2e", data: {{ run_carbon_values | safe }}, borderColor: "rgba(14, 165, 233, 1)", backgroundColor: "rgba(14, 165, 233, .12)", fill: true, tension: .35 }] }, options: { responsive: true, maintainAspectRatio: false } });
+        {% endif %}
+    </script>
+</body>
+</html>
+"""
+
+
+def _empty_data_response():
+    return """
+    <div style='background:#f8fafc; color:#0f172a; height:100vh; display:flex; align-items:center; justify-content:center; font-family:sans-serif;'>
+        <h2>No monitoring data found.</h2>
+    </div>
+    """
+
+
+def load_dashboard_data():
     df, data_source = load_metrics()
-
     if df.empty:
-        return """
-        <div style='background:#f8fafc; color:#0f172a; height:100vh; display:flex; align-items:center; justify-content:center; font-family:sans-serif;'>
-            <h2>No monitoring data found.</h2>
-        </div>
-        """
-
+        return pd.DataFrame(), pd.DataFrame(), data_source
     df = prepare_metrics_dataframe(df)
-    run_summary = build_run_summary(df)
+    return df, build_run_summary(df), data_source
 
-    if run_summary.empty:
-        return """
-        <div style='background:#f8fafc; color:#0f172a; height:100vh; display:flex; align-items:center; justify-content:center; font-family:sans-serif;'>
-            <h2>No monitoring data found.</h2>
-        </div>
-        """
 
-    requested_run = request.args.get("run_id")
+def selected_or_latest_run_id(run_summary, requested_run=None):
     available_run_ids = set(run_summary["run_id"].astype(str).tolist())
-    selected_run = requested_run if requested_run in available_run_ids else str(run_summary.iloc[0]["run_id"])
+    if requested_run in available_run_ids:
+        return str(requested_run)
+    return str(run_summary.iloc[0]["run_id"])
 
+
+def _run_times(current_run_df):
+    start_time = (
+        str(current_run_df["start_timestamp"].dropna().astype(str).min())
+        if "start_timestamp" in current_run_df.columns and not current_run_df["start_timestamp"].dropna().empty
+        else "Not available"
+    )
+    end_time = (
+        str(current_run_df["end_timestamp"].dropna().astype(str).max())
+        if "end_timestamp" in current_run_df.columns and not current_run_df["end_timestamp"].dropna().empty
+        else "Not available"
+    )
+    return start_time, end_time
+
+
+def enrich_run_summary_for_pages(df, run_summary):
+    rows = run_summary.copy()
+    if rows.empty:
+        return rows
+    rows["total_energy_display"] = rows["total_energy_kwh"].apply(format_kwh)
+    rows["total_carbon_display"] = rows["total_carbon_kg"].apply(format_gco2_from_kg)
+    rows["duration_display"] = rows.apply(
+        lambda row: format_seconds(row["jenkins_stage_duration_seconds"])
+        if row.get("jenkins_stage_duration_captured") else format_seconds(row["duration_seconds"]),
+        axis=1,
+    )
+    health_scores, alert_counts, start_times, end_times = [], [], [], []
+    for run_id in rows["run_id"].astype(str).tolist():
+        current_run_df = df[df["run_id"] == run_id].copy()
+        historical_df = df[df["run_id"] != run_id].copy()
+        anomalies = detect_stage_anomalies(current_run_df, calculate_stage_baselines(historical_df))
+        health = calculate_sustainability_score(current_run_df, calculate_pipeline_baseline(historical_df), anomalies)
+        health_scores.append(int(health.get("score", 0)))
+        alert_counts.append(sum(1 for item in anomalies if normalize_display_severity(item.get("severity")) in {"critical", "warning"}))
+        start_time, end_time = _run_times(current_run_df)
+        start_times.append(start_time)
+        end_times.append(end_time)
+    rows["health_score"] = health_scores
+    rows["alert_count"] = alert_counts
+    rows["start_time_display"] = start_times
+    rows["end_time_display"] = end_times
+    return rows
+
+
+def build_run_context(df, run_summary, data_source, selected_run):
     current_run_df = df[df["run_id"] == selected_run].copy()
-    system_total_energy = round(float(df["total_energy_kwh"].sum()), 8)
-    system_total_carbon = round(float(df["total_carbon_kg"].sum()), 8)
-    system_run_count = int(len(run_summary))
     historical_df = df[df["run_id"] != selected_run].copy()
     ml_historical_df = historical_df
     if "pipeline_name" in current_run_df.columns and "pipeline_name" in historical_df.columns:
         selected_pipeline_names = current_run_df["pipeline_name"].dropna().astype(str).unique().tolist()
         if selected_pipeline_names:
-            ml_historical_df = historical_df[
-                historical_df["pipeline_name"].astype(str).isin(selected_pipeline_names)
-            ].copy()
-    ml_anomaly = detect_ml_anomalies(current_run_df, ml_historical_df)
-
-    baseline_run_count = int(historical_df["run_id"].nunique()) if not historical_df.empty else 0
-    confidence_level = confidence_from_run_count(baseline_run_count)
+            ml_historical_df = historical_df[historical_df["pipeline_name"].astype(str).isin(selected_pipeline_names)].copy()
     stage_baseline_df = calculate_stage_baselines(historical_df)
     pipeline_baseline = calculate_pipeline_baseline(historical_df)
+    anomalies = detect_stage_anomalies(current_run_df, stage_baseline_df)
+    health_score = calculate_sustainability_score(current_run_df, pipeline_baseline, anomalies)
+    ml_anomaly = detect_ml_anomalies(current_run_df, ml_historical_df)
 
     stage_order = ordered_stage_categories(current_run_df["stage"].tolist())
     current_run_df["stage"] = pd.Categorical(current_run_df["stage"], categories=stage_order, ordered=True)
     current_run_df = current_run_df.sort_values("stage")
-
     summary = (
         current_run_df.groupby("stage", observed=True)
         .agg(
@@ -2191,119 +2431,14 @@ def dashboard():
             overhead_percentage=("overhead_percentage", "mean"),
             jenkins_stage_duration_captured=("jenkins_stage_duration_captured", "max"),
             avg_cpu_percent=("avg_cpu_percent", "mean"),
+            peak_cpu_percent=("peak_cpu_percent", "max"),
             total_energy_kwh=("total_energy_kwh", "sum"),
             active_energy_kwh=("active_energy_kwh", "sum"),
             total_carbon_kg=("total_carbon_kg", "sum"),
+            carbon_intensity_kg_per_kwh=("carbon_intensity_kg_per_kwh", "mean"),
         )
         .reset_index()
     )
-
-    anomalies = detect_stage_anomalies(current_run_df, stage_baseline_df)
-    anomalies = sorted(
-        anomalies,
-        key=lambda item: (
-            severity_rank(item.get("severity")),
-            -abs(float(item.get("percentage_change") or 0.0)),
-            str(item["stage"]),
-            str(item["metric"]),
-        ),
-    )
-    anomaly_summary = summarize_anomalies(anomalies)
-    health_score = calculate_sustainability_score(current_run_df, pipeline_baseline, anomalies)
-    comparison_rows = build_comparison_rows(current_run_df, pipeline_baseline)
-
-    total_energy = round(float(current_run_df["total_energy_kwh"].sum()), 8)
-    active_energy = round(float(current_run_df["active_energy_kwh"].sum()), 8)
-    total_carbon = round(float(current_run_df["total_carbon_kg"].sum()), 8)
-    pipeline_duration = round(float(current_run_df["duration_seconds"].sum()), 2)
-    workload_duration = round(float(current_run_df["workload_duration_seconds"].sum()), 2)
-    jenkins_stage_duration = round(float(current_run_df["jenkins_stage_duration_seconds"].sum()), 2)
-    infrastructure_overhead = round(float(current_run_df["infrastructure_overhead_seconds"].sum()), 2)
-    overhead_percentage = round(
-        (infrastructure_overhead / jenkins_stage_duration * 100.0) if jenkins_stage_duration > 0 else 0.0,
-        2,
-    )
-    avg_cpu = round(float(summary["avg_cpu_percent"].mean()), 2) if not summary.empty else 0
-    has_full_stage_timing = bool(current_run_df["jenkins_stage_duration_captured"].any())
-
-    phone_charges = round(total_energy / 0.01, 3) if total_energy else 0
-    led_hours = round(total_energy / 0.01, 3) if total_energy else 0
-    car_meters = round(((total_carbon * 1000) / 120) * 1000, 3) if total_carbon else 0
-
-    highest_active_stage = (
-        summary.sort_values("active_energy_kwh", ascending=False).iloc[0]["stage"] if not summary.empty else "N/A"
-    )
-    highest_total_stage = (
-        summary.sort_values("total_energy_kwh", ascending=False).iloc[0]["stage"] if not summary.empty else "N/A"
-    )
-
-    dashboard_anomalies = deduplicate_anomalies(anomalies, allowed_metrics=PP1_ANOMALY_METRICS, limit=8)
-    dashboard_anomalies = [normalize_dashboard_anomaly(item) for item in dashboard_anomalies]
-    major_dashboard_anomalies = [item for item in dashboard_anomalies if item.get("severity") in {"critical", "warning"}]
-    formatted_statistical_alerts = [
-    {
-        **format_dashboard_anomaly(item),
-        "source": "Statistical"
-    }
-    for item in dashboard_anomalies
-    if item.get("severity") in {"critical", "warning"}
-    ]
-    formatted_ml_alerts = [
-    format_ml_alert(item)
-    for item in ml_anomaly.get("results", [])
-    if normalize_display_severity(item.get("severity")) in {"critical", "warning"}
-    ]
-    formatted_alerts = formatted_statistical_alerts + formatted_ml_alerts
-    critical_alerts = [
-    item for item in formatted_alerts
-    if item.get("severity") == "critical"
-    ]
-    warning_alerts = [
-    item for item in formatted_alerts
-    if item.get("severity") == "warning"
-    ]
-    combined_critical_count = len(critical_alerts)
-    combined_warning_count = len(warning_alerts)
-
-    if combined_critical_count > 0:
-        anomaly_summary = {
-            "critical_count": combined_critical_count,
-            "warning_count": combined_warning_count,
-            "overall_status": "Critical",
-            "summary_message": f"{combined_critical_count} critical and {combined_warning_count} warning alert(s) detected across statistical and ML models.",
-        }
-    elif combined_warning_count > 0:
-            anomaly_summary = {
-            "critical_count": 0,
-            "warning_count": combined_warning_count,
-            "overall_status": "Warning",
-            "summary_message": f"{combined_warning_count} warning alert(s) detected across statistical and ML models.",
-        }
-    else:
-        anomaly_summary = {
-            "critical_count": 0,
-            "warning_count": 0,
-            "overall_status": "Normal",
-            "summary_message": "No statistical or ML anomaly alerts were detected.",
-        }
-    statistical_metric_groups = build_statistical_metric_groups(summary, stage_baseline_df, dashboard_anomalies)
-    anomaly_teaser = (
-        dashboard_anomalies[0]["message"] if dashboard_anomalies else "No major anomaly detected for this run."
-    )
-    pipeline_insight = (
-        f"Run {selected_run} used {format_kwh(total_energy)} and emitted {format_gco2_from_kg(total_carbon)}. "
-        f"Health score: {health_score['score']}/100 ({health_score['grade']}). "
-        f"Workload time was {format_seconds(workload_duration)}"
-        f"{f', with {format_seconds(infrastructure_overhead)} of infrastructure overhead.' if has_full_stage_timing else '.'} "
-        f"{anomaly_teaser}"
-    )
-
-    stage_insight = (
-        f"The {str(highest_active_stage).replace('_', ' ').title()} stage had the highest active compute demand, while "
-        f"{str(highest_total_stage).replace('_', ' ').title()} had the largest total energy footprint. Monitoring confidence is {confidence_level.lower()} "
-        f"based on {baseline_run_count} historical run(s)."
-    )
-
     stage_status = (
         current_run_df.groupby("stage", observed=True)["status"]
         .agg(lambda x: "failed" if x.astype(str).str.lower().eq("failed").any() else "success")
@@ -2311,118 +2446,124 @@ def dashboard():
     )
     display_rows = summary.merge(stage_status, on="stage", how="left")
     display_rows["stage_label"] = display_rows["stage"].astype(str).str.replace("_", " ").str.title()
-    display_rows["duration_display"] = display_rows["duration_seconds"].apply(format_seconds)
     display_rows["workload_duration_display"] = display_rows["workload_duration_seconds"].apply(format_seconds)
-    display_rows["full_duration_display"] = display_rows.apply(
-        lambda row: format_seconds(row["jenkins_stage_duration_seconds"])
-        if row["jenkins_stage_duration_captured"] else "Not captured",
-        axis=1,
-    )
-    display_rows["overhead_display"] = display_rows.apply(
-        lambda row: format_seconds(row["infrastructure_overhead_seconds"])
-        if row["jenkins_stage_duration_captured"] else "Not captured",
-        axis=1,
-    )
-    display_rows["overhead_percentage_display"] = display_rows.apply(
-        lambda row: format_percent(row["overhead_percentage"]) if row["jenkins_stage_duration_captured"] else "Not captured",
-        axis=1,
-    )
+    display_rows["full_duration_display"] = display_rows.apply(lambda row: format_seconds(row["jenkins_stage_duration_seconds"]) if row["jenkins_stage_duration_captured"] else "Not captured", axis=1)
+    display_rows["overhead_percentage_display"] = display_rows.apply(lambda row: format_percent(row["overhead_percentage"]) if row["jenkins_stage_duration_captured"] else "Not captured", axis=1)
     display_rows["avg_cpu_display"] = display_rows["avg_cpu_percent"].apply(format_percent)
+    display_rows["peak_cpu_display"] = display_rows["peak_cpu_percent"].apply(format_percent)
+    display_rows["carbon_intensity_display"] = display_rows["carbon_intensity_kg_per_kwh"].apply(lambda value: f"{float(value):.4f} kg/kWh")
     display_rows["total_energy_display"] = display_rows["total_energy_kwh"].apply(format_kwh)
     display_rows["total_carbon_display"] = display_rows["total_carbon_kg"].apply(format_gco2_from_kg)
-    selected_run_status = "failed" if current_run_df["status"].astype(str).str.lower().eq("failed").any() else "success"
-    selected_run_duration_display = full_stage_duration_display = (
-        format_seconds(jenkins_stage_duration) if has_full_stage_timing else format_seconds(workload_duration)
-    )
 
-    run_summary["total_energy_display"] = run_summary["total_energy_kwh"].apply(format_kwh)
-    run_summary["total_carbon_display"] = run_summary["total_carbon_kg"].apply(format_gco2_from_kg)
-    run_summary["duration_display"] = run_summary.apply(
-        lambda row: format_seconds(row["jenkins_stage_duration_seconds"])
-        if row["jenkins_stage_duration_captured"] else format_seconds(row["duration_seconds"]),
-        axis=1,
-    )
-
+    dashboard_anomalies = [normalize_dashboard_anomaly(item) for item in deduplicate_anomalies(anomalies, allowed_metrics=PP1_ANOMALY_METRICS, limit=8)]
+    formatted_statistical_alerts = [{**format_dashboard_anomaly(item), "source": "Statistical"} for item in dashboard_anomalies if item.get("severity") in {"critical", "warning"}]
     formatted_ml_results = []
     for item in ml_anomaly.get("results", []):
         formatted_item = dict(item)
         formatted_item["severity"] = normalize_display_severity(item.get("severity"))
-        if formatted_item["severity"] == "normal" and item.get("severity") == "info":
-            formatted_item["message"] = "Stable compared with baseline."
         formatted_item["stage_label"] = str(item.get("stage", "unknown")).replace("_", " ").title()
         formatted_item["anomaly_score_display"] = format_decimal(item.get("anomaly_score", 0.0), decimals=4)
         formatted_ml_results.append(formatted_item)
-
-    formatted_ml_anomaly = dict(ml_anomaly)
-    formatted_ml_anomaly["model"] = ml_anomaly.get("model", "Isolation Forest")
-    formatted_ml_anomaly["historical_samples_used"] = int(ml_anomaly.get("historical_samples_used", 0))
-    ml_status = str(ml_anomaly.get("status", "Normal"))
-    if ml_status.strip().lower() in {"warming up", "active", "partial active"}:
-        formatted_ml_anomaly["status"] = ml_status
-    else:
-        formatted_ml_anomaly["status"] = severity_theme(ml_status)["label"]
-    formatted_ml_anomaly["status_color"] = ml_status_color(formatted_ml_anomaly["status"])
-    formatted_ml_anomaly["results"] = formatted_ml_results
+    formatted_ml_alerts = [format_ml_alert(item) for item in ml_anomaly.get("results", []) if normalize_display_severity(item.get("severity")) in {"critical", "warning"}]
+    critical_count = sum(1 for item in formatted_statistical_alerts + formatted_ml_alerts if item.get("severity") == "critical")
+    warning_count = sum(1 for item in formatted_statistical_alerts + formatted_ml_alerts if item.get("severity") == "warning")
+    anomaly_summary = {
+        "critical_count": critical_count,
+        "warning_count": warning_count,
+        "overall_status": "Critical" if critical_count else ("Warning" if warning_count else "Normal"),
+    }
     lifecycle_sections = build_lifecycle_sections(display_rows, formatted_statistical_alerts, formatted_ml_results)
-    recent_runs = run_summary.head(5).to_dict(orient="records")
-    refresh_url = f"/?run_id={selected_run}" if selected_run else "/"
 
-    return render_template_string(
-        HTML,
-        selected_run=selected_run,
-        refresh_url=refresh_url,
-        data_source=data_source,
-        runs=run_summary.to_dict(orient="records"),
-        recent_runs=recent_runs,
-        system_total_energy_display=format_kwh(system_total_energy),
-        system_total_carbon_display=format_gco2_from_kg(system_total_carbon),
-        system_run_count=system_run_count,
-        selected_run_status=selected_run_status,
-        selected_run_duration_display=selected_run_duration_display,
-        total_energy=total_energy,
-        active_energy=active_energy,
-        total_carbon=total_carbon,
-        pipeline_duration=pipeline_duration,
-        workload_duration=workload_duration,
-        jenkins_stage_duration=jenkins_stage_duration,
-        infrastructure_overhead=infrastructure_overhead,
-        overhead_percentage=overhead_percentage,
-        avg_cpu=avg_cpu,
-        total_energy_display=format_kwh(total_energy),
-        active_energy_display=format_kwh(active_energy),
-        total_carbon_display=format_gco2_from_kg(total_carbon),
-        pipeline_duration_display=format_seconds(pipeline_duration),
-        workload_duration_display=format_seconds(workload_duration),
-        full_stage_duration_display=format_seconds(jenkins_stage_duration) if has_full_stage_timing else "Not captured",
-        infrastructure_overhead_display=format_seconds(infrastructure_overhead) if has_full_stage_timing else "Not captured",
-        overhead_percentage_display=format_percent(overhead_percentage) if has_full_stage_timing else "Not captured",
-        avg_cpu_display=format_percent(avg_cpu),
-        phone_charges=phone_charges,
-        led_hours=led_hours,
-        car_meters=car_meters,
-        phone_charges_display=format_equivalent(phone_charges, "", " charges"),
-        led_hours_display=format_equivalent(led_hours, "h", "h"),
-        car_meters_display=format_equivalent(car_meters, "m", "m"),
-        stage_count=len(display_rows),
-        pipeline_insight=pipeline_insight,
-        stage_insight=stage_insight,
-        rows=display_rows.to_dict(orient="records"),
-        stages=json.dumps(summary["stage"].astype(str).tolist()),
-        total_energy_values=json.dumps(summary["total_energy_kwh"].round(8).tolist()),
-        workload_energy_values=json.dumps(summary["active_energy_kwh"].round(8).tolist()),
-        cpu_values=json.dumps(summary["avg_cpu_percent"].round(2).tolist()),
-        health_score=health_score,
-        confidence_level=confidence_level,
-        baseline_run_count=baseline_run_count,
-        anomaly_summary=anomaly_summary,
-        comparison_rows=comparison_rows,
-        statistical_metric_groups=statistical_metric_groups,
-        critical_alerts=critical_alerts,
-        warning_alerts=warning_alerts,
-        ml_anomaly=formatted_ml_anomaly,
-        lifecycle_sections=lifecycle_sections,
-        major_anomaly_count=len(major_dashboard_anomalies),
-    )
+    has_full_stage_timing = bool(current_run_df["jenkins_stage_duration_captured"].any())
+    workload_duration = round(float(current_run_df["workload_duration_seconds"].sum()), 2)
+    jenkins_stage_duration = round(float(current_run_df["jenkins_stage_duration_seconds"].sum()), 2)
+    selected_run_status = "failed" if current_run_df["status"].astype(str).str.lower().eq("failed").any() else "success"
+    pipeline_name = str(current_run_df["pipeline_name"].dropna().astype(str).iloc[0]) if "pipeline_name" in current_run_df.columns and not current_run_df["pipeline_name"].dropna().empty else "Unknown pipeline"
+    selected_run_start, selected_run_end = _run_times(current_run_df)
+
+    return {
+        "data_source": data_source,
+        "selected_run": selected_run,
+        "pipeline_name": pipeline_name,
+        "selected_run_status": selected_run_status,
+        "selected_run_start": selected_run_start,
+        "selected_run_end": selected_run_end,
+        "selected_run_duration_display": format_seconds(jenkins_stage_duration) if has_full_stage_timing else format_seconds(workload_duration),
+        "total_energy_display": format_kwh(round(float(current_run_df["total_energy_kwh"].sum()), 8)),
+        "total_carbon_display": format_gco2_from_kg(round(float(current_run_df["total_carbon_kg"].sum()), 8)),
+        "health_score": health_score,
+        "anomaly_summary": anomaly_summary,
+        "lifecycle_sections": lifecycle_sections,
+    }
+
+
+def build_home_context(df, run_summary, data_source):
+    enriched_runs = enrich_run_summary_for_pages(df, run_summary)
+    chart_rows = enriched_runs.sort_values(["latest_time", "run_id"], ascending=[True, True]).tail(12)
+    average_health_score = int(round(float(enriched_runs["health_score"].mean()))) if not enriched_runs.empty else 0
+    return {
+        "data_source": data_source,
+        "system_total_energy_display": format_kwh(round(float(df["total_energy_kwh"].sum()), 8)),
+        "system_total_carbon_display": format_gco2_from_kg(round(float(df["total_carbon_kg"].sum()), 8)),
+        "system_run_count": int(len(enriched_runs)),
+        "average_health_score": average_health_score,
+        "recent_runs": enriched_runs.head(5).to_dict(orient="records"),
+        "run_chart_labels": json.dumps(chart_rows["run_id"].astype(str).tolist()),
+        "run_energy_values": json.dumps(chart_rows["total_energy_kwh"].round(8).tolist()),
+        "run_carbon_values": json.dumps(chart_rows["total_carbon_kg"].round(8).tolist()),
+    }
+
+
+def _data_or_empty():
+    df, data_source = load_metrics()
+    if df.empty:
+        return None, None, data_source
+    df = prepare_metrics_dataframe(df)
+    run_summary = build_run_summary(df)
+    if run_summary.empty:
+        return None, None, data_source
+    return df, run_summary, data_source
+
+
+@app.route("/")
+def home():
+    df, run_summary, data_source = _data_or_empty()
+    if df is None:
+        return _empty_data_response()
+    return render_template_string(APP_HTML, page="home", **build_home_context(df, run_summary, data_source))
+
+
+@app.route("/runs")
+def runs_page():
+    df, run_summary, data_source = _data_or_empty()
+    if df is None:
+        return _empty_data_response()
+    runs = enrich_run_summary_for_pages(df, run_summary).to_dict(orient="records")
+    return render_template_string(APP_HTML, page="runs", data_source=data_source, runs=runs)
+
+
+@app.route("/run/<run_id>")
+def run_overview(run_id):
+    df, run_summary, data_source = _data_or_empty()
+    if df is None:
+        return _empty_data_response()
+    if run_id not in set(run_summary["run_id"].astype(str).tolist()):
+        abort(404)
+    return render_template_string(APP_HTML, page="run", **build_run_context(df, run_summary, data_source, run_id))
+
+
+@app.route("/run/<run_id>/<stage_key>")
+def stage_detail(run_id, stage_key):
+    df, run_summary, data_source = _data_or_empty()
+    if df is None:
+        return _empty_data_response()
+    if run_id not in set(run_summary["run_id"].astype(str).tolist()):
+        abort(404)
+    context = build_run_context(df, run_summary, data_source, run_id)
+    stage_detail_context = next((item for item in context["lifecycle_sections"] if item.get("key") == stage_key.lower()), None)
+    if stage_detail_context is None:
+        abort(404)
+    return render_template_string(APP_HTML, page="stage", stage_detail=stage_detail_context, **context)
 
 
 if __name__ == "__main__":
