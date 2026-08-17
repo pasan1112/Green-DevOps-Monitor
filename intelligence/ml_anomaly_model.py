@@ -23,20 +23,15 @@ ML_FEATURE_COLUMNS = [
     "total_carbon_kg",
     "active_carbon_kg",
     "carbon_intensity_kg_per_kwh",
-    "stage_encoded",
 ]
 
-STAGE_ENCODING = {
-    "build": 0,
-    "test": 1,
-    "deploy": 2,
-    "unknown": 3,
-}
+STAGE_SPECIFIC_MODELS = ["build", "test", "deploy"]
+MIN_TRAINING_SAMPLES = 10
 
 WARMING_UP_RESPONSE = {
     "enabled": False,
     "status": "Warming Up",
-    "message": "Isolation Forest requires more historical runs for reliable detection.",
+    "message": "Stage-specific Isolation Forest models require more historical runs for reliable detection.",
     "results": [],
 }
 
@@ -48,7 +43,6 @@ def prepare_ml_features(df: pd.DataFrame) -> pd.DataFrame:
         return pd.DataFrame(columns=ML_FEATURE_COLUMNS)
 
     prepared = stage_records.copy()
-    prepared["stage_encoded"] = prepared["stage"].apply(_encode_stage)
 
     for column in ML_FEATURE_COLUMNS:
         if column not in prepared.columns:
@@ -59,83 +53,199 @@ def prepare_ml_features(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def detect_ml_anomalies(current_run_df: pd.DataFrame, historical_df: pd.DataFrame) -> Dict[str, object]:
-    """Detect stage anomalies using an Isolation Forest model."""
+    """Detect stage anomalies using independent stage-specific Isolation Forest models."""
+    historical_df = _filter_historical_context(current_run_df, historical_df)
     historical_stage_records = _build_stage_records(historical_df)
-    historical_features = prepare_ml_features(historical_df)
+    current_stage_records = _build_stage_records(current_run_df)
 
     if IsolationForest is None:
         return {
             "enabled": False,
             "status": "Warming Up",
             "message": "scikit-learn is not installed yet. Install project requirements to enable Isolation Forest detection.",
-            "results": [],
+            "results": [
+                _build_warming_up_result(stage, _stage_sample_count(historical_stage_records, stage))
+                for stage in STAGE_SPECIFIC_MODELS
+            ],
             "historical_samples_used": int(len(historical_stage_records)),
-            "model": "Isolation Forest",
+            "model": "Stage-specific Isolation Forest",
+            "stage_models": _build_stage_model_summary(historical_stage_records, active_stages=set()),
         }
 
-    if len(historical_features) < 10:
-        return {
-            **WARMING_UP_RESPONSE,
-            "historical_samples_used": int(len(historical_stage_records)),
-            "model": "Isolation Forest",
-        }
-
-    current_stage_records = _build_stage_records(current_run_df)
-    current_features = prepare_ml_features(current_run_df)
-
-    if current_stage_records.empty or current_features.empty:
+    if current_stage_records.empty:
         return {
             "enabled": True,
             "status": "Normal",
             "message": "No current stage data is available for ML anomaly detection.",
             "results": [],
             "historical_samples_used": int(len(historical_stage_records)),
-            "model": "Isolation Forest",
+            "model": "Stage-specific Isolation Forest",
+            "stage_models": _build_stage_model_summary(historical_stage_records, active_stages=set()),
         }
 
-    model = IsolationForest(contamination=0.15, random_state=42)
-    model.fit(historical_features)
-
-    predictions = model.predict(current_features)
-    anomaly_scores = model.decision_function(current_features)
-
     results: List[Dict[str, object]] = []
-    for row, prediction, score in zip(
-        current_stage_records.to_dict(orient="records"),
-        predictions.tolist(),
-        anomaly_scores.tolist(),
-    ):
-        stage = str(row.get("stage", "unknown"))
-        is_anomaly = int(prediction) == -1
-        severity = _ml_severity(is_anomaly, float(score))
-        message = _ml_message(stage, is_anomaly, float(score))
+    active_stages = set()
+
+    for stage in STAGE_SPECIFIC_MODELS:
+        historical_stage_df = historical_stage_records[historical_stage_records["stage"] == stage].copy()
+        historical_samples = int(len(historical_stage_df))
+
+        if historical_samples < MIN_TRAINING_SAMPLES:
+            results.append(_build_warming_up_result(stage, historical_samples))
+            continue
+
+        active_stages.add(stage)
+        current_stage_df = current_stage_records[current_stage_records["stage"] == stage].copy()
+        if current_stage_df.empty:
+            results.append(_build_no_current_stage_result(stage, historical_samples))
+            continue
+
+        historical_features = _prepare_stage_features(historical_stage_df)
+        current_features = _prepare_stage_features(current_stage_df)
+        if historical_features.empty or current_features.empty:
+            results.append(_build_no_current_stage_result(stage, historical_samples))
+            continue
+
+        model = IsolationForest(contamination=0.15, random_state=42)
+        model.fit(historical_features)
+
+        prediction = int(model.predict(current_features)[0])
+        score = float(model.decision_function(current_features)[0])
+        is_anomaly = prediction == -1
+        severity = _ml_severity(is_anomaly, score)
+
         results.append(
             {
                 "stage": stage,
+                "model_status": "active",
+                "historical_samples": historical_samples,
+                "is_anomaly": is_anomaly,
                 "prediction": "Anomaly" if is_anomaly else "Normal",
-                "anomaly_score": round(float(score), 6),
+                "anomaly_score": round(score, 6),
                 "severity": severity,
-                "message": message,
+                "message": _ml_message(stage, is_anomaly, score),
             }
         )
 
-    status = "Normal"
+    status = _overall_ml_status(results)
     if any(item["severity"] == "critical" for item in results):
         status = "Critical"
     elif any(item["severity"] == "warning" for item in results):
         status = "Warning"
 
     return {
-        "enabled": True,
+        "enabled": bool(active_stages),
         "status": status,
-        "message": (
-            "Isolation Forest learns normal pipeline behavior from historical runs and flags unusual stage patterns "
-            "across duration, CPU, energy, carbon, and overhead."
-        ),
+        "message": _overall_ml_message(results),
         "results": results,
         "historical_samples_used": int(len(historical_stage_records)),
-        "model": "Isolation Forest",
+        "model": "Stage-specific Isolation Forest",
+        "stage_models": _build_stage_model_summary(historical_stage_records, active_stages=active_stages),
     }
+
+
+def _prepare_stage_features(stage_records: pd.DataFrame) -> pd.DataFrame:
+    if stage_records is None or stage_records.empty:
+        return pd.DataFrame(columns=ML_FEATURE_COLUMNS)
+
+    prepared = stage_records.copy()
+    for column in ML_FEATURE_COLUMNS:
+        if column not in prepared.columns:
+            prepared[column] = 0.0
+        prepared[column] = pd.to_numeric(prepared[column], errors="coerce").fillna(0.0)
+
+    return prepared[ML_FEATURE_COLUMNS]
+
+
+def _filter_historical_context(current_run_df: pd.DataFrame, historical_df: pd.DataFrame) -> pd.DataFrame:
+    filtered = historical_df.copy() if historical_df is not None else pd.DataFrame()
+    current = current_run_df.copy() if current_run_df is not None else pd.DataFrame()
+    if filtered.empty or current.empty:
+        return filtered
+
+    if "run_id" in filtered.columns and "run_id" in current.columns:
+        current_run_ids = set(current["run_id"].dropna().astype(str).tolist())
+        filtered = filtered[~filtered["run_id"].astype(str).isin(current_run_ids)].copy()
+
+    if "pipeline_name" in filtered.columns and "pipeline_name" in current.columns:
+        current_pipelines = current["pipeline_name"].dropna().astype(str).unique().tolist()
+        if current_pipelines:
+            filtered = filtered[filtered["pipeline_name"].astype(str).isin(current_pipelines)].copy()
+
+    return filtered
+
+
+def _build_warming_up_result(stage: str, historical_samples: int) -> Dict[str, object]:
+    return {
+        "stage": stage,
+        "model_status": "warming_up",
+        "historical_samples": historical_samples,
+        "is_anomaly": False,
+        "prediction": "Warming Up",
+        "anomaly_score": None,
+        "severity": "normal",
+        "message": (
+            f"{stage.replace('_', ' ').title()} Isolation Forest is warming up "
+            f"({historical_samples}/{MIN_TRAINING_SAMPLES} historical stage records)."
+        ),
+    }
+
+
+def _build_no_current_stage_result(stage: str, historical_samples: int) -> Dict[str, object]:
+    return {
+        "stage": stage,
+        "model_status": "active",
+        "historical_samples": historical_samples,
+        "is_anomaly": False,
+        "prediction": "Not Available",
+        "anomaly_score": None,
+        "severity": "normal",
+        "message": f"No current {stage.replace('_', ' ').title()} stage record is available for ML anomaly detection.",
+    }
+
+
+def _stage_sample_count(stage_records: pd.DataFrame, stage: str) -> int:
+    if stage_records is None or stage_records.empty or "stage" not in stage_records.columns:
+        return 0
+    return int(len(stage_records[stage_records["stage"] == stage]))
+
+
+def _build_stage_model_summary(stage_records: pd.DataFrame, active_stages: set[str]) -> Dict[str, Dict[str, object]]:
+    summary = {}
+    for stage in STAGE_SPECIFIC_MODELS:
+        historical_samples = _stage_sample_count(stage_records, stage)
+        summary[stage] = {
+            "model_status": "active" if stage in active_stages else "warming_up",
+            "historical_samples": historical_samples,
+            "minimum_training_samples": MIN_TRAINING_SAMPLES,
+        }
+    return summary
+
+
+def _overall_ml_status(results: List[Dict[str, object]]) -> str:
+    if not results:
+        return "Normal"
+    active_count = sum(1 for item in results if item.get("model_status") == "active")
+    if active_count == 0:
+        return "Warming Up"
+    if active_count < len(STAGE_SPECIFIC_MODELS):
+        return "Partial Active"
+    return "Active"
+
+
+def _overall_ml_message(results: List[Dict[str, object]]) -> str:
+    active_count = sum(1 for item in results if item.get("model_status") == "active")
+    if active_count == 0:
+        return "All stage-specific Isolation Forest models are warming up; statistical anomaly detection remains active."
+    if active_count < len(STAGE_SPECIFIC_MODELS):
+        return (
+            f"{active_count} of {len(STAGE_SPECIFIC_MODELS)} stage-specific Isolation Forest models are active; "
+            "warming stages continue to rely on statistical anomaly detection."
+        )
+    return (
+        "Stage-specific Isolation Forest models learn normal behavior separately for Build, Test, and Deploy "
+        "across duration, CPU, energy, carbon, and overhead."
+    )
 
 
 def _build_stage_records(df: pd.DataFrame) -> pd.DataFrame:
@@ -226,11 +336,6 @@ def _build_stage_records(df: pd.DataFrame) -> pd.DataFrame:
             aggregated[column] = pd.to_numeric(aggregated[column], errors="coerce").fillna(0.0)
 
     return aggregated
-
-
-def _encode_stage(stage: object) -> int:
-    normalized = str(stage).strip().lower() if stage is not None else "unknown"
-    return STAGE_ENCODING.get(normalized, STAGE_ENCODING["unknown"])
 
 
 def _ml_severity(is_anomaly: bool, score: float) -> str:

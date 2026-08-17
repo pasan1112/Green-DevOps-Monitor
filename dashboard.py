@@ -1522,7 +1522,14 @@ def dashboard():
 
     current_run_df = df[df["run_id"] == selected_run].copy()
     historical_df = df[df["run_id"] != selected_run].copy()
-    ml_anomaly = detect_ml_anomalies(current_run_df, historical_df)
+    ml_historical_df = historical_df
+    if "pipeline_name" in current_run_df.columns and "pipeline_name" in historical_df.columns:
+        selected_pipeline_names = current_run_df["pipeline_name"].dropna().astype(str).unique().tolist()
+        if selected_pipeline_names:
+            ml_historical_df = historical_df[
+                historical_df["pipeline_name"].astype(str).isin(selected_pipeline_names)
+            ].copy()
+    ml_anomaly = detect_ml_anomalies(current_run_df, ml_historical_df)
 
     baseline_run_count = int(historical_df["run_id"].nunique()) if not historical_df.empty else 0
     confidence_level = confidence_from_run_count(baseline_run_count)
@@ -1704,11 +1711,11 @@ def dashboard():
     formatted_ml_anomaly = dict(ml_anomaly)
     formatted_ml_anomaly["model"] = ml_anomaly.get("model", "Isolation Forest")
     formatted_ml_anomaly["historical_samples_used"] = int(ml_anomaly.get("historical_samples_used", 0))
-    formatted_ml_anomaly["status"] = (
-        ml_anomaly.get("status", "Normal")
-        if str(ml_anomaly.get("status", "")).strip().lower() == "warming up"
-        else severity_theme(ml_anomaly.get("status", "Normal"))["label"]
-    )
+    ml_status = str(ml_anomaly.get("status", "Normal"))
+    if ml_status.strip().lower() in {"warming up", "active", "partial active"}:
+        formatted_ml_anomaly["status"] = ml_status
+    else:
+        formatted_ml_anomaly["status"] = severity_theme(ml_status)["label"]
     formatted_ml_anomaly["status_color"] = ml_status_color(formatted_ml_anomaly["status"])
     formatted_ml_anomaly["results"] = formatted_ml_results
     refresh_url = f"/?run_id={selected_run}" if selected_run else "/"
