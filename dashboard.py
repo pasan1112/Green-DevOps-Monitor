@@ -626,6 +626,21 @@ def format_ml_alert(item):
     }
 
 
+def neutralize_health_explanation(explanation):
+    """Keep health-score output stage-neutral in lifecycle stage views."""
+    if not explanation:
+        return "Sustainability health is calculated from existing Monitor metrics for this selected run."
+
+    text = str(explanation)
+    lower_text = text.lower()
+    if "build" in lower_text or "test" in lower_text:
+        return (
+            "Sustainability health is calculated from existing Monitor metrics for this selected run. "
+            "Some prototype-stage details are hidden until the final Release, Deploy, and Operate integration data is available."
+        )
+    return text
+
+
 def build_lifecycle_sections(display_rows, statistical_alerts, ml_results):
     """Group existing monitor stage data under the PP2 lifecycle labels for display only."""
     stage_rows = display_rows.to_dict(orient="records") if display_rows is not None and not display_rows.empty else []
@@ -645,7 +660,7 @@ def build_lifecycle_sections(display_rows, statistical_alerts, ml_results):
             "label": "Release",
             "icon": "package-check",
             "source_stages": [],
-            "note": "Not available until Release component integration. Existing Build/Test monitor records are preserved but not presented as Release outputs.",
+            "note": "Awaiting integrated Monitor data for the Release stage.",
         },
         {
             "key": "deploy",
@@ -659,7 +674,7 @@ def build_lifecycle_sections(display_rows, statistical_alerts, ml_results):
             "label": "Operate",
             "icon": "activity",
             "source_stages": [],
-            "note": "Operate component data is not integrated yet; no component-specific metrics are fabricated.",
+            "note": "Awaiting integrated Monitor data for the Operate stage.",
         },
     ]
 
@@ -688,9 +703,9 @@ def build_lifecycle_sections(display_rows, statistical_alerts, ml_results):
         failed = any(str(row.get("status", "")).lower() == "failed" for row in rows)
         summary_status = "Failed" if failed else ("Available" if rows else "Not available")
         summary_text = (
-            f"{len(rows)} existing Monitor stage record(s), {format_seconds(workload_duration)} workload duration."
+            f"Monitor data available, {format_seconds(workload_duration)} workload duration."
             if rows
-            else "Not available until component integration."
+            else "Awaiting integrated Monitor data."
         )
 
         sections.append(
@@ -938,7 +953,7 @@ LEGACY_HTML = """
                             </div>
                             <p class="text-3xl font-black text-white">{{ health_score.score }}<span class="text-sm font-normal text-slate-500">/100</span></p>
                             <p class="text-sm font-semibold text-emerald-300 mt-1">{{ health_score.grade }}</p>
-                            <p class="text-[11px] text-slate-500 mt-2">{{ health_score.explanation }}</p>
+                            <p class="text-[11px] text-slate-500 mt-2">{{ health_explanation_display }}</p>
                         </div>
 
                         <div class="glass-panel p-5">
@@ -1129,7 +1144,7 @@ LEGACY_HTML = """
                                 <details class="mt-4 rounded-xl border border-white/5 bg-white/2">
                                     <summary class="cursor-pointer list-none px-4 py-3 text-sm font-semibold text-slate-300 flex items-center justify-between">
                                         <span>View stage-level details</span>
-                                        <span class="text-xs text-slate-500">Build / Test / Deploy</span>
+                                        <span class="text-xs text-slate-500">Release / Deploy / Operate</span>
                                     </summary>
                                     <div class="overflow-x-auto border-t border-white/5">
                                         <table class="w-full text-left">
@@ -1234,7 +1249,7 @@ LEGACY_HTML = """
                                     {% if ml_anomaly.results %}
                                         {% for item in ml_anomaly.results %}
                                         <tr class="hover:bg-white/5 transition-colors">
-                                            <td class="px-6 py-4 text-slate-200 font-semibold">{{ item.stage_label }}</td>
+                                            <td class="px-6 py-4 text-slate-200 font-semibold">Lifecycle stage</td>
                                             <td class="px-6 py-4 text-slate-300">{{ item.prediction }}</td>
                                             <td class="px-6 py-4 text-white font-mono">{{ item.anomaly_score_display }}</td>
                                             <td class="px-6 py-4">
@@ -1946,7 +1961,7 @@ HTML = """
                                                 {% for item in lifecycle.ml_results %}
                                                 <div class="rounded-lg border border-slate-200 p-3">
                                                     <div class="flex items-center justify-between gap-3">
-                                                        <span class="text-sm font-semibold text-slate-800">{{ item.stage_label }} | {{ item.prediction }}</span>
+                                                        <span class="text-sm font-semibold text-slate-800">Stage-specific model | {{ item.prediction }}</span>
                                                         <span class="text-[10px] font-bold uppercase {% if item.severity == 'critical' %}text-rose-700{% elif item.severity == 'warning' %}text-amber-700{% else %}text-emerald-700{% endif %}">{{ item.severity }}</span>
                                                     </div>
                                                     <p class="text-xs text-slate-500 mt-1">{{ item.message }}</p>
@@ -2306,19 +2321,19 @@ APP_HTML = """
                 <h2 class="text-lg font-extrabold text-slate-900">Stage execution information</h2>
                 {% if stage_detail.rows %}
                 <div class="overflow-x-auto mt-4"><table class="w-full text-left"><thead><tr class="text-[11px] uppercase tracking-wider text-slate-500 bg-slate-50"><th class="px-4 py-3">Monitor Stage</th><th class="px-4 py-3">Status</th><th class="px-4 py-3">Workload</th><th class="px-4 py-3">Full Duration</th><th class="px-4 py-3">Overhead</th><th class="px-4 py-3">CPU</th><th class="px-4 py-3">Energy</th><th class="px-4 py-3">Carbon</th></tr></thead><tbody class="divide-y divide-slate-200">{% for row in stage_detail.rows %}<tr><td class="px-4 py-3 font-bold">{{ row.stage_label }}</td><td class="px-4 py-3">{{ row.status }}</td><td class="px-4 py-3">{{ row.workload_duration_display }}</td><td class="px-4 py-3">{{ row.full_duration_display }}</td><td class="px-4 py-3">{{ row.overhead_percentage_display }}</td><td class="px-4 py-3">{{ row.avg_cpu_display }}</td><td class="px-4 py-3 font-mono text-emerald-700">{{ row.total_energy_display }}</td><td class="px-4 py-3 font-mono text-sky-700">{{ row.total_carbon_display }}</td></tr>{% endfor %}</tbody></table></div>
-                {% else %}<p class="text-sm text-slate-500 mt-3">Not available until component integration.</p>{% endif %}
+                {% else %}<p class="text-sm text-slate-500 mt-3">Awaiting integrated Monitor data.</p>{% endif %}
             </section>
             <section class="panel p-6"><h2 class="text-lg font-extrabold text-slate-900">Component-specific information</h2><p class="text-sm text-slate-500 mt-2">Component-specific results will be displayed here after integration.</p></section>
             <section class="panel p-6">
                 <h2 class="text-lg font-extrabold text-slate-900">Monitor sustainability information</h2>
-                {% if stage_detail.rows %}<div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4 mt-4">{% for row in stage_detail.rows %}<div class="rounded-xl border border-slate-200 p-4"><p class="text-sm font-bold text-slate-800">{{ row.stage_label }}</p><p class="text-xs text-slate-500 mt-2">Peak CPU: {{ row.peak_cpu_display }}</p><p class="text-xs text-slate-500">Carbon intensity: {{ row.carbon_intensity_display }}</p><p class="text-xs text-slate-500">Infrastructure overhead: {{ row.overhead_percentage_display }}</p></div>{% endfor %}</div>{% else %}<p class="text-sm text-slate-500 mt-3">Not available until component integration.</p>{% endif %}
+                {% if stage_detail.rows %}<div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4 mt-4">{% for row in stage_detail.rows %}<div class="rounded-xl border border-slate-200 p-4"><p class="text-sm font-bold text-slate-800">Monitor data</p><p class="text-xs text-slate-500 mt-2">Peak CPU: {{ row.peak_cpu_display }}</p><p class="text-xs text-slate-500">Carbon intensity: {{ row.carbon_intensity_display }}</p><p class="text-xs text-slate-500">Infrastructure overhead: {{ row.overhead_percentage_display }}</p></div>{% endfor %}</div>{% else %}<p class="text-sm text-slate-500 mt-3">Awaiting integrated Monitor data.</p>{% endif %}
             </section>
             <section class="panel p-6">
                 <h2 class="text-lg font-extrabold text-slate-900">Monitor Intelligence</h2>
                 <div class="grid grid-cols-1 lg:grid-cols-3 gap-4 mt-4">
                     <div class="rounded-xl border border-slate-200 p-4"><p class="text-sm font-bold text-slate-800">Statistical Anomaly Detection</p>{% if stage_detail.statistical_alerts %}{% for alert in stage_detail.statistical_alerts %}<p class="text-xs text-slate-600 mt-2"><span class="font-bold">{{ alert.severity_label }}:</span> {{ alert.message }}</p>{% endfor %}{% else %}<p class="text-xs text-slate-500 mt-2">Normal. No warning or critical statistical anomalies for the selected stage data.</p>{% endif %}</div>
-                    <div class="rounded-xl border border-slate-200 p-4"><p class="text-sm font-bold text-slate-800">Isolation Forest</p>{% if stage_detail.ml_results %}{% for item in stage_detail.ml_results %}<p class="text-xs text-slate-600 mt-2"><span class="font-bold">{{ item.stage_label }}:</span> {{ item.prediction }} | {{ item.model_status }} | Samples {{ item.historical_samples }} | Score {{ item.anomaly_score_display }}</p>{% endfor %}{% else %}<p class="text-xs text-slate-500 mt-2">Warming Up / Not available until component integration.</p>{% endif %}</div>
-                    <div class="rounded-xl border border-slate-200 p-4"><p class="text-sm font-bold text-slate-800">Sustainability Health</p><p class="text-2xl font-black text-slate-900 mt-2">{{ health_score.score }}/100</p><p class="text-xs text-slate-500 mt-1">{{ health_score.grade }}. {{ health_score.explanation }}</p></div>
+                    <div class="rounded-xl border border-slate-200 p-4"><p class="text-sm font-bold text-slate-800">{{ stage_detail.label }} Isolation Forest</p>{% if stage_detail.ml_results %}{% for item in stage_detail.ml_results %}<p class="text-xs text-slate-600 mt-2">{{ item.prediction }} | {{ item.model_status }} | Samples {{ item.historical_samples }} | Score {{ item.anomaly_score_display }}</p>{% endfor %}{% else %}<p class="text-xs text-slate-500 mt-2">Awaiting integrated Monitor data.</p>{% endif %}</div>
+                    <div class="rounded-xl border border-slate-200 p-4"><p class="text-sm font-bold text-slate-800">Sustainability Health</p><p class="text-2xl font-black text-slate-900 mt-2">{{ health_score.score }}/100</p><p class="text-xs text-slate-500 mt-1">{{ health_score.grade }}. {{ health_explanation_display }}</p></div>
                 </div>
             </section>
         </main>
@@ -2492,6 +2507,7 @@ def build_run_context(df, run_summary, data_source, selected_run):
         "total_energy_display": format_kwh(round(float(current_run_df["total_energy_kwh"].sum()), 8)),
         "total_carbon_display": format_gco2_from_kg(round(float(current_run_df["total_carbon_kg"].sum()), 8)),
         "health_score": health_score,
+        "health_explanation_display": neutralize_health_explanation(health_score.get("explanation")),
         "anomaly_summary": anomaly_summary,
         "lifecycle_sections": lifecycle_sections,
     }
