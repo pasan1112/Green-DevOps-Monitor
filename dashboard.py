@@ -625,7 +625,80 @@ def format_ml_alert(item):
         ),
     }
 
-HTML = """
+
+def build_lifecycle_sections(display_rows, statistical_alerts, ml_results):
+    """Group existing monitor stage data under the PP2 lifecycle labels for display only."""
+    stage_rows = display_rows.to_dict(orient="records") if display_rows is not None and not display_rows.empty else []
+    stage_lookup = {str(row.get("stage", "")).lower(): row for row in stage_rows}
+
+    statistical_by_stage = {}
+    for alert in statistical_alerts or []:
+        statistical_by_stage.setdefault(str(alert.get("stage", "")).lower(), []).append(alert)
+
+    ml_by_stage = {}
+    for result in ml_results or []:
+        ml_by_stage.setdefault(str(result.get("stage", "")).lower(), []).append(result)
+
+    lifecycle_definitions = [
+        {
+            "key": "release",
+            "label": "Release",
+            "icon": "package-check",
+            "source_stages": ["build", "test"],
+            "note": "Current monitor data mapped from available Build/Test records until PP2 release component data is integrated.",
+        },
+        {
+            "key": "deploy",
+            "label": "Deploy",
+            "icon": "rocket",
+            "source_stages": ["deploy"],
+            "note": "Current monitor data mapped from available Deploy records.",
+        },
+        {
+            "key": "operate",
+            "label": "Operate",
+            "icon": "activity",
+            "source_stages": [],
+            "note": "Operate component data is not integrated yet; no component-specific metrics are fabricated.",
+        },
+    ]
+
+    sections = []
+    for definition in lifecycle_definitions:
+        rows = [stage_lookup[stage] for stage in definition["source_stages"] if stage in stage_lookup]
+        row_stage_names = {str(row.get("stage", "")).lower() for row in rows}
+        stat_alerts = [
+            alert
+            for stage_name in row_stage_names
+            for alert in statistical_by_stage.get(stage_name, [])
+            if normalize_display_severity(alert.get("severity")) in {"critical", "warning"}
+        ]
+        ml_items = [
+            item
+            for stage_name in row_stage_names
+            for item in ml_by_stage.get(stage_name, [])
+        ]
+        critical_count = sum(1 for alert in stat_alerts if alert.get("severity") == "critical")
+        warning_count = sum(1 for alert in stat_alerts if alert.get("severity") == "warning")
+        critical_count += sum(1 for item in ml_items if item.get("severity") == "critical")
+        warning_count += sum(1 for item in ml_items if item.get("severity") == "warning")
+
+        sections.append(
+            {
+                **definition,
+                "rows": rows,
+                "statistical_alerts": stat_alerts,
+                "ml_results": ml_items,
+                "critical_count": critical_count,
+                "warning_count": warning_count,
+                "has_data": bool(rows),
+            }
+        )
+
+    return sections
+
+
+LEGACY_HTML = """
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -1495,6 +1568,571 @@ HTML = """
 """
 
 
+HTML = """
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Green DevOps Monitor</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&display=swap');
+
+        :root {
+            --panel: #ffffff;
+            --border: #e2e8f0;
+            --text: #0f172a;
+            --muted: #64748b;
+            --bg: #f8fafc;
+            --shadow: 0 12px 30px rgba(15, 23, 42, 0.08);
+        }
+
+        body {
+            font-family: 'Plus Jakarta Sans', sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            min-height: 100vh;
+        }
+
+        .glass-panel {
+            background: var(--panel);
+            border: 1px solid var(--border);
+            border-radius: 1rem;
+            box-shadow: var(--shadow);
+        }
+
+        .nav-item-active {
+            background: rgba(16, 185, 129, 0.08);
+            border-color: rgba(16, 185, 129, 0.35) !important;
+        }
+
+        .sidebar-sticky {
+            position: sticky;
+            top: 24px;
+            max-height: calc(100vh - 48px);
+        }
+
+        .sidebar-scroll::-webkit-scrollbar { width: 4px; }
+        .sidebar-scroll::-webkit-scrollbar-track { background: #f8fafc; }
+        .sidebar-scroll::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 10px; }
+
+        .status-pulse {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            display: inline-block;
+            margin-right: 8px;
+            animation: pulse 2s infinite;
+        }
+
+        @keyframes pulse {
+            0% { box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.55); }
+            70% { box-shadow: 0 0 0 10px rgba(34, 197, 94, 0); }
+            100% { box-shadow: 0 0 0 0 rgba(34, 197, 94, 0); }
+        }
+
+        .modal-overlay {
+            position: fixed;
+            inset: 0;
+            background: rgba(15, 23, 42, 0.48);
+            display: none;
+            align-items: center;
+            justify-content: center;
+            padding: 24px;
+            z-index: 1000;
+        }
+
+        .modal-overlay.is-open { display: flex; }
+
+        .modal-panel {
+            width: min(960px, 100%);
+            max-height: 85vh;
+            overflow: hidden;
+            background: #ffffff;
+            border: 1px solid #e2e8f0;
+            border-radius: 1rem;
+            box-shadow: 0 24px 60px rgba(15, 23, 42, 0.22);
+        }
+
+        .modal-scroll {
+            max-height: calc(85vh - 88px);
+            overflow-y: auto;
+        }
+    </style>
+</head>
+
+<body class="p-4 md:p-8">
+    <div class="max-w-[1600px] mx-auto">
+        <header class="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4 mb-6">
+            <div>
+                <div class="flex items-center gap-3">
+                    <div class="p-2 bg-emerald-100 rounded-lg">
+                        <i data-lucide="leaf" class="text-emerald-600 w-8 h-8"></i>
+                    </div>
+                    <div>
+                        <h1 class="text-3xl font-extrabold tracking-tight text-slate-900">Green DevOps Monitor</h1>
+                        <p class="text-sm text-slate-600 font-medium">Centralized sustainability monitoring for the Release, Deploy, and Operate lifecycle</p>
+                    </div>
+                </div>
+            </div>
+
+            <div class="flex flex-wrap gap-2 items-center">
+                <a href="{{ refresh_url }}" class="inline-flex items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-2 text-sm font-semibold text-emerald-700 hover:bg-emerald-100">
+                    <i data-lucide="refresh-cw" class="w-4 h-4"></i>
+                    Refresh Data
+                </a>
+                <div class="glass-panel px-4 py-2 flex items-center gap-2">
+                    <span class="status-pulse bg-emerald-500"></span>
+                    <span class="text-sm font-semibold text-slate-700">{{ data_source }}</span>
+                </div>
+            </div>
+        </header>
+
+        <div class="grid grid-cols-1 lg:grid-cols-12 gap-6">
+            <aside class="lg:col-span-3 flex flex-col gap-4 sidebar-sticky">
+                <nav class="glass-panel p-4">
+                    <p class="text-xs font-bold uppercase tracking-[0.2em] text-slate-500 mb-3">Navigation</p>
+                    <div class="space-y-2 text-sm font-semibold">
+                        <a href="#home" class="flex items-center gap-2 rounded-lg px-3 py-2 text-slate-700 hover:bg-slate-50"><i data-lucide="home" class="w-4 h-4"></i>Home</a>
+                        <a href="#runs" class="flex items-center gap-2 rounded-lg px-3 py-2 text-slate-700 hover:bg-slate-50"><i data-lucide="history" class="w-4 h-4"></i>Runs</a>
+                        <a href="#run-overview" class="flex items-center gap-2 rounded-lg px-3 py-2 text-slate-700 hover:bg-slate-50"><i data-lucide="layout-dashboard" class="w-4 h-4"></i>Run Overview</a>
+                        <a href="#lifecycle" class="flex items-center gap-2 rounded-lg px-3 py-2 text-slate-700 hover:bg-slate-50"><i data-lucide="workflow" class="w-4 h-4"></i>Release | Deploy | Operate</a>
+                    </div>
+                </nav>
+
+                <section id="runs" class="glass-panel p-4 flex-1 flex flex-col overflow-hidden">
+                    <div class="flex items-center justify-between mb-4">
+                        <h2 class="text-xs font-bold uppercase tracking-[0.2em] text-slate-500">Recent Runs</h2>
+                        <i data-lucide="history" class="w-4 h-4 text-slate-500"></i>
+                    </div>
+                    <div class="sidebar-scroll overflow-y-auto space-y-2 pr-2">
+                        {% for run in runs %}
+                        <a href="/?run_id={{ run.run_id }}" class="block p-3 rounded-xl border border-slate-200 transition-all hover:border-emerald-200 hover:bg-emerald-50/60 {% if run.run_id == selected_run %}nav-item-active{% endif %}">
+                            <div class="flex justify-between items-start gap-3">
+                                <span class="text-sm font-bold text-slate-800 truncate">#{{ run.run_id }}</span>
+                                <span class="text-[10px] px-2 py-0.5 rounded-full font-bold uppercase {% if run.status == 'success' %}bg-emerald-100 text-emerald-700{% else %}bg-rose-100 text-rose-700{% endif %}">{{ run.status }}</span>
+                            </div>
+                            <div class="grid grid-cols-2 gap-2 text-[11px] text-slate-500 font-medium mt-2">
+                                <span class="flex items-center gap-1"><i data-lucide="zap" class="w-3 h-3"></i>{{ run.total_energy_display }}</span>
+                                <span class="flex items-center gap-1"><i data-lucide="clock" class="w-3 h-3"></i>{{ run.duration_display }}</span>
+                            </div>
+                        </a>
+                        {% endfor %}
+                    </div>
+                </section>
+            </aside>
+
+            <main class="lg:col-span-9 space-y-8">
+                <section id="home" class="space-y-5">
+                    <div>
+                        <p class="text-xs font-bold uppercase tracking-[0.2em] text-emerald-600 mb-2">Home</p>
+                        <h2 class="text-2xl font-extrabold text-slate-900">System sustainability overview</h2>
+                        <p class="text-sm text-slate-600 mt-2">A monitor-level view of total sustainability impact and the latest pipeline activity.</p>
+                    </div>
+
+                    <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
+                        <div class="glass-panel p-5">
+                            <p class="text-xs font-bold text-slate-500 uppercase tracking-wider">Overall Energy</p>
+                            <p class="text-3xl font-black text-emerald-600 mt-2">{{ system_total_energy_display }}</p>
+                        </div>
+                        <div class="glass-panel p-5">
+                            <p class="text-xs font-bold text-slate-500 uppercase tracking-wider">Overall Carbon</p>
+                            <p class="text-3xl font-black text-sky-600 mt-2">{{ system_total_carbon_display }}</p>
+                        </div>
+                        <div class="glass-panel p-5">
+                            <p class="text-xs font-bold text-slate-500 uppercase tracking-wider">Sustainability Health</p>
+                            <p class="text-3xl font-black text-slate-900 mt-2">{{ health_score.score }}<span class="text-sm text-slate-500">/100</span></p>
+                            <p class="text-sm font-semibold text-emerald-700">{{ health_score.grade }} for selected run</p>
+                        </div>
+                        <div class="glass-panel p-5">
+                            <p class="text-xs font-bold text-slate-500 uppercase tracking-wider">Pipeline Runs</p>
+                            <p class="text-3xl font-black text-slate-900 mt-2">{{ system_run_count }}</p>
+                            <p class="text-sm text-slate-500">Stored in {{ data_source }}</p>
+                        </div>
+                    </div>
+
+                    <div class="grid grid-cols-1 xl:grid-cols-3 gap-6">
+                        <div class="xl:col-span-2 glass-panel p-6">
+                            <div class="flex items-center justify-between mb-5">
+                                <h3 class="text-sm font-bold text-slate-800 uppercase tracking-wider">Sustainability Trends by Stage</h3>
+                                <i data-lucide="bar-chart-3" class="w-4 h-4 text-emerald-600"></i>
+                            </div>
+                            <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                                <div class="h-[240px]"><canvas id="energyChart"></canvas></div>
+                                <div class="h-[240px]"><canvas id="cpuChart"></canvas></div>
+                            </div>
+                        </div>
+
+                        <div class="glass-panel p-6">
+                            <h3 class="text-sm font-bold text-slate-800 uppercase tracking-wider mb-4">Latest Activity</h3>
+                            <div class="space-y-3">
+                                {% for run in recent_runs %}
+                                <a href="/?run_id={{ run.run_id }}" class="block rounded-xl border border-slate-200 p-3 hover:bg-slate-50">
+                                    <div class="flex items-center justify-between gap-3">
+                                        <span class="text-sm font-bold text-slate-800 truncate">#{{ run.run_id }}</span>
+                                        <span class="text-[10px] font-bold uppercase {% if run.status == 'success' %}text-emerald-700{% else %}text-rose-700{% endif %}">{{ run.status }}</span>
+                                    </div>
+                                    <p class="text-xs text-slate-500 mt-1">{{ run.total_energy_display }} | {{ run.total_carbon_display }}</p>
+                                </a>
+                                {% endfor %}
+                            </div>
+                        </div>
+                    </div>
+                </section>
+
+                <section id="run-overview" class="glass-panel overflow-hidden">
+                    <div class="px-6 py-5 border-b border-slate-200 bg-slate-50">
+                        <p class="text-xs font-bold uppercase tracking-[0.2em] text-emerald-600 mb-2">Run Overview</p>
+                        <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+                            <div>
+                                <h2 class="text-2xl font-extrabold text-slate-900">Run {{ selected_run }}</h2>
+                                <p class="text-sm text-slate-600 mt-1">{{ pipeline_insight }}</p>
+                            </div>
+                            <span class="self-start text-xs px-3 py-1 rounded-full font-bold uppercase {% if selected_run_status == 'success' %}bg-emerald-100 text-emerald-700{% else %}bg-rose-100 text-rose-700{% endif %}">{{ selected_run_status }}</span>
+                        </div>
+                    </div>
+
+                    <div class="p-6 space-y-6">
+                        <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-5 gap-4">
+                            <div>
+                                <p class="text-xs font-bold text-slate-500 uppercase tracking-wider">Duration</p>
+                                <p class="text-xl font-black text-slate-900 mt-1">{{ selected_run_duration_display }}</p>
+                            </div>
+                            <div>
+                                <p class="text-xs font-bold text-slate-500 uppercase tracking-wider">Total Energy</p>
+                                <p class="text-xl font-black text-emerald-600 mt-1">{{ total_energy_display }}</p>
+                            </div>
+                            <div>
+                                <p class="text-xs font-bold text-slate-500 uppercase tracking-wider">Total Carbon</p>
+                                <p class="text-xl font-black text-sky-600 mt-1">{{ total_carbon_display }}</p>
+                            </div>
+                            <div>
+                                <p class="text-xs font-bold text-slate-500 uppercase tracking-wider">Health Score</p>
+                                <p class="text-xl font-black text-slate-900 mt-1">{{ health_score.score }}/100</p>
+                            </div>
+                            <div>
+                                <p class="text-xs font-bold text-slate-500 uppercase tracking-wider">Alerts</p>
+                                <div class="flex flex-wrap gap-2 mt-2">
+                                    <button type="button" onclick="openAlertModal('critical-alerts-modal')" class="rounded-full bg-rose-50 px-3 py-1 text-xs font-bold text-rose-700">{{ anomaly_summary.critical_count }} Critical</button>
+                                    <button type="button" onclick="openAlertModal('warning-alerts-modal')" class="rounded-full bg-amber-50 px-3 py-1 text-xs font-bold text-amber-700">{{ anomaly_summary.warning_count }} Warning</button>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div id="lifecycle" class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                            {% for lifecycle in lifecycle_sections %}
+                            <a href="#stage-{{ lifecycle.key }}" class="rounded-xl border border-slate-200 p-4 hover:border-emerald-300 hover:bg-emerald-50/40 transition-colors">
+                                <div class="flex items-center justify-between">
+                                    <div class="flex items-center gap-2">
+                                        <i data-lucide="{{ lifecycle.icon }}" class="w-5 h-5 text-emerald-600"></i>
+                                        <h3 class="font-extrabold text-slate-900">{{ lifecycle.label }}</h3>
+                                    </div>
+                                    <span class="text-xs font-bold text-slate-500">{{ lifecycle.rows|length }} monitor stage{{ '' if lifecycle.rows|length == 1 else 's' }}</span>
+                                </div>
+                                <p class="text-xs text-slate-500 mt-3">{{ lifecycle.note }}</p>
+                            </a>
+                            {% endfor %}
+                        </div>
+                    </div>
+                </section>
+
+                <section class="space-y-5">
+                    <div>
+                        <p class="text-xs font-bold uppercase tracking-[0.2em] text-emerald-600 mb-2">Stage Detail</p>
+                        <h2 class="text-2xl font-extrabold text-slate-900">Release | Deploy | Operate</h2>
+                        <p class="text-sm text-slate-600 mt-2">This phase displays only existing Monitor metrics. Component-specific PP2 data will be added later.</p>
+                    </div>
+
+                    {% for lifecycle in lifecycle_sections %}
+                    <section id="stage-{{ lifecycle.key }}" class="glass-panel overflow-hidden">
+                        <div class="px-6 py-5 border-b border-slate-200 bg-slate-50 flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+                            <div>
+                                <p class="text-xs font-bold uppercase tracking-[0.2em] text-emerald-600">{{ lifecycle.label }}</p>
+                                <h3 class="text-xl font-extrabold text-slate-900 mt-1">{{ lifecycle.label }} stage detail</h3>
+                                <p class="text-sm text-slate-600 mt-1">{{ lifecycle.note }}</p>
+                            </div>
+                            <div class="flex flex-wrap gap-2">
+                                <span class="rounded-full bg-rose-50 px-3 py-1 text-xs font-bold text-rose-700">{{ lifecycle.critical_count }} Critical</span>
+                                <span class="rounded-full bg-amber-50 px-3 py-1 text-xs font-bold text-amber-700">{{ lifecycle.warning_count }} Warning</span>
+                            </div>
+                        </div>
+
+                        <div class="p-6 space-y-6">
+                            {% if lifecycle.rows %}
+                            <div class="overflow-x-auto border border-slate-200 rounded-xl">
+                                <table class="w-full text-left">
+                                    <thead>
+                                        <tr class="text-[11px] font-bold text-slate-500 uppercase tracking-wider bg-slate-50">
+                                            <th class="px-4 py-3">Monitor Stage</th>
+                                            <th class="px-4 py-3">Status</th>
+                                            <th class="px-4 py-3">Duration</th>
+                                            <th class="px-4 py-3">Overhead</th>
+                                            <th class="px-4 py-3">CPU</th>
+                                            <th class="px-4 py-3">Energy</th>
+                                            <th class="px-4 py-3 text-right">Carbon</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody class="divide-y divide-slate-200">
+                                        {% for row in lifecycle.rows %}
+                                        <tr>
+                                            <td class="px-4 py-3 font-bold text-slate-800">{{ row.stage_label }}</td>
+                                            <td class="px-4 py-3"><span class="text-[10px] px-2 py-0.5 rounded-full font-bold uppercase {% if row.status == 'success' %}bg-emerald-100 text-emerald-700{% else %}bg-rose-100 text-rose-700{% endif %}">{{ row.status }}</span></td>
+                                            <td class="px-4 py-3 text-slate-700">{{ row.workload_duration_display }}</td>
+                                            <td class="px-4 py-3 text-slate-700">{{ row.overhead_display }}</td>
+                                            <td class="px-4 py-3 text-slate-700">{{ row.avg_cpu_display }}</td>
+                                            <td class="px-4 py-3 font-mono text-sm text-emerald-700">{{ row.total_energy_display }}</td>
+                                            <td class="px-4 py-3 text-right font-mono text-sm text-sky-700">{{ row.total_carbon_display }}</td>
+                                        </tr>
+                                        {% endfor %}
+                                    </tbody>
+                                </table>
+                            </div>
+                            {% else %}
+                            <div class="rounded-xl border border-slate-200 bg-slate-50 p-5">
+                                <p class="text-sm font-semibold text-slate-700">No existing Monitor stage records are currently mapped to {{ lifecycle.label }}.</p>
+                            </div>
+                            {% endif %}
+
+                            <div class="rounded-xl border border-slate-200 p-5">
+                                <div class="flex items-center justify-between gap-4 mb-4">
+                                    <div>
+                                        <p class="text-xs font-bold uppercase tracking-[0.2em] text-slate-500">Monitor Intelligence</p>
+                                        <h4 class="text-lg font-extrabold text-slate-900 mt-1">Statistical and Isolation Forest signals</h4>
+                                    </div>
+                                    <span class="text-xs font-semibold text-slate-500">{{ ml_anomaly.model }}</span>
+                                </div>
+
+                                <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                                    <div>
+                                        <p class="text-sm font-bold text-slate-800 mb-3">Statistical anomaly detection</p>
+                                        {% if lifecycle.statistical_alerts %}
+                                            <div class="space-y-2">
+                                                {% for alert in lifecycle.statistical_alerts %}
+                                                <div class="rounded-lg border border-slate-200 p-3">
+                                                    <div class="flex items-center justify-between gap-3">
+                                                        <span class="text-sm font-semibold text-slate-800">{{ alert.stage_label }} | {{ alert.metric_label }}</span>
+                                                        <span class="text-[10px] font-bold uppercase {% if alert.severity == 'critical' %}text-rose-700{% else %}text-amber-700{% endif %}">{{ alert.severity_label }}</span>
+                                                    </div>
+                                                    <p class="text-xs text-slate-500 mt-1">{{ alert.message }}</p>
+                                                </div>
+                                                {% endfor %}
+                                            </div>
+                                        {% else %}
+                                            <p class="text-sm text-slate-500">No statistical warning or critical alerts for the mapped Monitor stages.</p>
+                                        {% endif %}
+                                    </div>
+
+                                    <div>
+                                        <p class="text-sm font-bold text-slate-800 mb-3">Isolation Forest</p>
+                                        {% if lifecycle.ml_results %}
+                                            <div class="space-y-2">
+                                                {% for item in lifecycle.ml_results %}
+                                                <div class="rounded-lg border border-slate-200 p-3">
+                                                    <div class="flex items-center justify-between gap-3">
+                                                        <span class="text-sm font-semibold text-slate-800">{{ item.stage_label }} | {{ item.prediction }}</span>
+                                                        <span class="text-[10px] font-bold uppercase {% if item.severity == 'critical' %}text-rose-700{% elif item.severity == 'warning' %}text-amber-700{% else %}text-emerald-700{% endif %}">{{ item.severity }}</span>
+                                                    </div>
+                                                    <p class="text-xs text-slate-500 mt-1">{{ item.message }}</p>
+                                                    <p class="text-xs text-slate-400 mt-1">Score: {{ item.anomaly_score_display }}</p>
+                                                </div>
+                                                {% endfor %}
+                                            </div>
+                                        {% else %}
+                                            <p class="text-sm text-slate-500">No Isolation Forest result is available for the mapped Monitor stages.</p>
+                                        {% endif %}
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </section>
+                    {% endfor %}
+                </section>
+
+                <section class="glass-panel overflow-hidden">
+                    <div class="px-6 py-5 border-b border-slate-200 bg-slate-50">
+                        <p class="text-xs font-bold uppercase tracking-[0.2em] text-emerald-600 mb-2">Baseline Comparison</p>
+                        <h2 class="text-xl font-extrabold text-slate-900">Selected run compared with historical behavior</h2>
+                    </div>
+                    <div class="divide-y divide-slate-200">
+                        {% for item in comparison_rows %}
+                        <div class="px-6 py-4 flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+                            <div>
+                                <p class="text-sm font-bold text-slate-800">{{ item.label }}</p>
+                                <p class="text-xs text-slate-500">Historical average: {% if item.baseline_display is not none %}{{ item.baseline_display }}{% else %}Unavailable{% endif %}</p>
+                            </div>
+                            <div class="md:text-right">
+                                <p class="text-sm font-bold text-slate-900">{{ item.current_display }}</p>
+                                <p class="text-xs font-semibold {% if item.change_label == 'Baseline unavailable' %}text-slate-500{% elif item.is_above %}text-amber-700{% else %}text-emerald-700{% endif %}">{{ item.change_label }}</p>
+                            </div>
+                        </div>
+                        {% endfor %}
+                    </div>
+                </section>
+            </main>
+        </div>
+    </div>
+
+    <script>
+        lucide.createIcons();
+
+        const stages = {{ stages | safe }};
+        const fullStageEnergy = {{ total_energy_values | safe }};
+        const workloadEnergy = {{ workload_energy_values | safe }};
+        const avgCpu = {{ cpu_values | safe }};
+
+        const gridColor = "#e2e8f0";
+        const tickColor = "#64748b";
+
+        Chart.defaults.font.family = "'Plus Jakarta Sans', sans-serif";
+        Chart.defaults.color = tickColor;
+
+        const chartConfig = {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: { legend: { display: true, labels: { color: tickColor } } },
+            scales: {
+                y: { grid: { color: gridColor }, border: { display: false } },
+                x: { grid: { display: false } }
+            }
+        };
+
+        new Chart(document.getElementById("energyChart"), {
+            type: "bar",
+            data: {
+                labels: stages,
+                datasets: [
+                    {
+                        label: "Workload Energy",
+                        data: workloadEnergy,
+                        backgroundColor: "rgba(16, 185, 129, 0.62)",
+                        borderColor: "rgba(16, 185, 129, 1)",
+                        borderWidth: 1,
+                        borderRadius: 6
+                    },
+                    {
+                        label: "Full Stage Estimated Energy",
+                        data: fullStageEnergy,
+                        backgroundColor: "rgba(14, 165, 233, 0.55)",
+                        borderColor: "rgba(14, 165, 233, 1)",
+                        borderWidth: 1,
+                        borderRadius: 6
+                    }
+                ]
+            },
+            options: chartConfig
+        });
+
+        new Chart(document.getElementById("cpuChart"), {
+            type: "line",
+            data: {
+                labels: stages,
+                datasets: [{
+                    label: "Average CPU %",
+                    data: avgCpu,
+                    borderColor: "rgba(245, 158, 11, 1)",
+                    backgroundColor: "rgba(245, 158, 11, 0.12)",
+                    fill: true,
+                    tension: 0.35,
+                    pointRadius: 4
+                }]
+            },
+            options: chartConfig
+        });
+
+        function openAlertModal(modalId) {
+            const modal = document.getElementById(modalId);
+            if (!modal) return;
+            modal.classList.add("is-open");
+            document.body.style.overflow = "hidden";
+        }
+
+        function closeAlertModal(modalId) {
+            const modal = document.getElementById(modalId);
+            if (!modal) return;
+            modal.classList.remove("is-open");
+            if (!document.querySelector(".modal-overlay.is-open")) {
+                document.body.style.overflow = "";
+            }
+        }
+
+        document.addEventListener("keydown", function(event) {
+            if (event.key !== "Escape") return;
+            document.querySelectorAll(".modal-overlay.is-open").forEach(function(modal) {
+                modal.classList.remove("is-open");
+            });
+            document.body.style.overflow = "";
+        });
+    </script>
+
+    <div id="critical-alerts-modal" class="modal-overlay" onclick="if (event.target === this) closeAlertModal('critical-alerts-modal')">
+        <div class="modal-panel">
+            <div class="flex items-center justify-between px-6 py-5 border-b border-slate-200">
+                <div>
+                    <p class="text-xs font-bold uppercase tracking-[0.2em] text-rose-600">Critical Alerts</p>
+                    <h3 class="text-xl font-extrabold text-slate-900 mt-1">Critical alerts from statistical and ML models</h3>
+                </div>
+                <button type="button" onclick="closeAlertModal('critical-alerts-modal')" class="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-600 hover:bg-slate-50">Close</button>
+            </div>
+            <div class="modal-scroll px-6 py-5">
+                {% if critical_alerts %}
+                    <div class="space-y-4">
+                        {% for alert in critical_alerts %}
+                        <div class="rounded-xl border border-rose-200 bg-rose-50 p-4">
+                            <div class="flex flex-wrap items-center gap-2 mb-3">
+                                <span class="text-[10px] px-2 py-0.5 rounded-full font-bold uppercase {{ alert.severity_badge_class }}">{{ alert.severity_label }}</span>
+                                <span class="text-sm font-semibold text-slate-800">{{ alert.metric_label }}</span>
+                                <span class="text-sm text-slate-500">Stage: {{ alert.stage_label }}</span>
+                                <span class="text-sm text-slate-500">Source: {{ alert.source }}</span>
+                            </div>
+                            <p class="text-sm text-slate-600">{{ alert.message }}</p>
+                        </div>
+                        {% endfor %}
+                    </div>
+                {% else %}
+                    <p class="text-sm text-slate-500">No alerts in this category.</p>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+
+    <div id="warning-alerts-modal" class="modal-overlay" onclick="if (event.target === this) closeAlertModal('warning-alerts-modal')">
+        <div class="modal-panel">
+            <div class="flex items-center justify-between px-6 py-5 border-b border-slate-200">
+                <div>
+                    <p class="text-xs font-bold uppercase tracking-[0.2em] text-amber-600">Warnings</p>
+                    <h3 class="text-xl font-extrabold text-slate-900 mt-1">Warnings from statistical and ML models</h3>
+                </div>
+                <button type="button" onclick="closeAlertModal('warning-alerts-modal')" class="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-600 hover:bg-slate-50">Close</button>
+            </div>
+            <div class="modal-scroll px-6 py-5">
+                {% if warning_alerts %}
+                    <div class="space-y-4">
+                        {% for alert in warning_alerts %}
+                        <div class="rounded-xl border border-amber-200 bg-amber-50 p-4">
+                            <div class="flex flex-wrap items-center gap-2 mb-3">
+                                <span class="text-[10px] px-2 py-0.5 rounded-full font-bold uppercase {{ alert.severity_badge_class }}">{{ alert.severity_label }}</span>
+                                <span class="text-sm font-semibold text-slate-800">{{ alert.metric_label }}</span>
+                                <span class="text-sm text-slate-500">Stage: {{ alert.stage_label }}</span>
+                                <span class="text-sm text-slate-500">Source: {{ alert.source }}</span>
+                            </div>
+                            <p class="text-sm text-slate-600">{{ alert.message }}</p>
+                        </div>
+                        {% endfor %}
+                    </div>
+                {% else %}
+                    <p class="text-sm text-slate-500">No alerts in this category.</p>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</body>
+</html>
+"""
+
+
 @app.route("/")
 def dashboard():
     df, data_source = load_metrics()
@@ -1521,6 +2159,9 @@ def dashboard():
     selected_run = requested_run if requested_run in available_run_ids else str(run_summary.iloc[0]["run_id"])
 
     current_run_df = df[df["run_id"] == selected_run].copy()
+    system_total_energy = round(float(df["total_energy_kwh"].sum()), 8)
+    system_total_carbon = round(float(df["total_carbon_kg"].sum()), 8)
+    system_run_count = int(len(run_summary))
     historical_df = df[df["run_id"] != selected_run].copy()
     ml_historical_df = historical_df
     if "pipeline_name" in current_run_df.columns and "pipeline_name" in historical_df.columns:
@@ -1689,6 +2330,10 @@ def dashboard():
     display_rows["avg_cpu_display"] = display_rows["avg_cpu_percent"].apply(format_percent)
     display_rows["total_energy_display"] = display_rows["total_energy_kwh"].apply(format_kwh)
     display_rows["total_carbon_display"] = display_rows["total_carbon_kg"].apply(format_gco2_from_kg)
+    selected_run_status = "failed" if current_run_df["status"].astype(str).str.lower().eq("failed").any() else "success"
+    selected_run_duration_display = full_stage_duration_display = (
+        format_seconds(jenkins_stage_duration) if has_full_stage_timing else format_seconds(workload_duration)
+    )
 
     run_summary["total_energy_display"] = run_summary["total_energy_kwh"].apply(format_kwh)
     run_summary["total_carbon_display"] = run_summary["total_carbon_kg"].apply(format_gco2_from_kg)
@@ -1718,6 +2363,8 @@ def dashboard():
         formatted_ml_anomaly["status"] = severity_theme(ml_status)["label"]
     formatted_ml_anomaly["status_color"] = ml_status_color(formatted_ml_anomaly["status"])
     formatted_ml_anomaly["results"] = formatted_ml_results
+    lifecycle_sections = build_lifecycle_sections(display_rows, formatted_statistical_alerts, formatted_ml_results)
+    recent_runs = run_summary.head(5).to_dict(orient="records")
     refresh_url = f"/?run_id={selected_run}" if selected_run else "/"
 
     return render_template_string(
@@ -1726,6 +2373,12 @@ def dashboard():
         refresh_url=refresh_url,
         data_source=data_source,
         runs=run_summary.to_dict(orient="records"),
+        recent_runs=recent_runs,
+        system_total_energy_display=format_kwh(system_total_energy),
+        system_total_carbon_display=format_gco2_from_kg(system_total_carbon),
+        system_run_count=system_run_count,
+        selected_run_status=selected_run_status,
+        selected_run_duration_display=selected_run_duration_display,
         total_energy=total_energy,
         active_energy=active_energy,
         total_carbon=total_carbon,
@@ -1767,6 +2420,7 @@ def dashboard():
         critical_alerts=critical_alerts,
         warning_alerts=warning_alerts,
         ml_anomaly=formatted_ml_anomaly,
+        lifecycle_sections=lifecycle_sections,
         major_anomaly_count=len(major_dashboard_anomalies),
     )
 
