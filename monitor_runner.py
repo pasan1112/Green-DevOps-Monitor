@@ -13,6 +13,21 @@ from energy.energy_model import estimate_energy_kwh
 from energy.carbon_model import estimate_carbon_kg
 
 
+SUPPORTED_LIFECYCLE_STAGES = {"release", "deploy", "operate"}
+
+
+def validate_lifecycle_stage(stage_name):
+    """Validate final lifecycle stage names without migrating archived prototype data."""
+    normalized_stage = str(stage_name or "").strip().lower()
+    if normalized_stage not in SUPPORTED_LIFECYCLE_STAGES:
+        allowed = ", ".join(sorted(SUPPORTED_LIFECYCLE_STAGES))
+        raise ValueError(
+            f"Unsupported lifecycle stage '{stage_name}'. Use one of: {allowed}. "
+            "Archived prototype stage names are not converted automatically."
+        )
+    return normalized_stage
+
+
 def monitor_resources(stop_event, cpu_values, memory_values, interval=1):
     while not stop_event.is_set():
         cpu_values.append(psutil.cpu_percent(interval=interval))
@@ -125,7 +140,11 @@ def run_monitored_stage(
     duration_seconds is retained for backward compatibility.
     workload_duration_seconds stores the actual monitored command runtime.
     jenkins_stage_duration_seconds stores broader CI/CD stage time when Jenkins provides it.
+
+    Operate is accepted as a lifecycle stage, but continuous Operate monitoring is not implemented here yet.
+    This function remains intended for finite commands such as Release and Deploy pipeline work.
     """
+    stage_name = validate_lifecycle_stage(stage_name)
     print(f"\n--- Running monitored stage: {stage_name} ---")
     print(f"Command: {command}")
 
@@ -230,6 +249,7 @@ def run_monitored_stage(
 
 def update_stage_metadata(run_id, stage_name, workload_duration, jenkins_stage_duration=None, stage_start_timestamp=None, stage_end_timestamp=None):
     """Attach full Jenkins stage timing after the monitored command has already saved its record."""
+    stage_name = validate_lifecycle_stage(stage_name)
     updates = build_stage_metadata_updates(
         workload_duration=workload_duration,
         jenkins_stage_duration=jenkins_stage_duration,
@@ -254,7 +274,13 @@ def update_stage_metadata(run_id, stage_name, workload_duration, jenkins_stage_d
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Green DevOps stage monitoring runner")
 
-    parser.add_argument("--stage", required=True)
+    parser.add_argument(
+        "--stage",
+        required=True,
+        type=validate_lifecycle_stage,
+        metavar="{release,deploy,operate}",
+        help="Final lifecycle stage to monitor. Prototype stage names are not converted automatically.",
+    )
     parser.add_argument("--cmd")
     parser.add_argument("--pipeline", default="green-devops-pipeline")
     parser.add_argument("--run-id", default=str(int(time.time())))
