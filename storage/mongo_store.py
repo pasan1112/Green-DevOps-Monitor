@@ -18,18 +18,25 @@ def save_to_mongo(record):
 
     if not mongo_uri or mongo_client_cls is None:
         print("MongoDB not configured. Skipping MongoDB save.")
-        return
+        return False
 
-    client = mongo_client_cls(mongo_uri)
+    client = None
+    try:
+        client = mongo_client_cls(mongo_uri, serverSelectionTimeoutMS=3000)
+        db = client["green_devops_monitor"]
+        collection = db["pipeline_metrics"]
 
-    db = client["green_devops_monitor"]
-    collection = db["pipeline_metrics"]
+        collection.insert_one(record)
 
-    collection.insert_one(record)
+        print("Record saved to MongoDB.")
+        return True
+    except Exception as exc:
+        print(f"MongoDB save failed. Skipping MongoDB save: {exc}")
+        return False
+    finally:
+        if client is not None:
+            client.close()
 
-    client.close()
-
-    print("Record saved to MongoDB.")
 
 
 def update_stage_record(run_id, stage, updates):
