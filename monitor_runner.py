@@ -19,6 +19,13 @@ SCHEMA_VERSION = "1.0"
 COMPONENT_NAME = "monitor"
 SUPPORTED_LIFECYCLE_STAGES = {"release", "deploy", "operate"}
 FINITE_LIFECYCLE_STAGES = {"release", "deploy"}
+SKIP_REASONS = {
+    "no_affected_components",
+    "no_release_work",
+    "dry_run",
+    "app_not_affected",
+    "deployment_not_required",
+}
 DEFAULT_SESSION_DIR = Path("data") / "monitor_sessions"
 DEFAULT_CSV_PATH = Path("data") / "metrics.csv"
 
@@ -46,6 +53,14 @@ def validate_finite_lifecycle_stage(stage_name):
             "observation windows; use release or deploy with start/stop/cancel."
         )
     return stage_name
+
+
+def validate_skip_reason(reason):
+    normalized_reason = str(reason or "").strip().lower()
+    if normalized_reason not in SKIP_REASONS:
+        allowed = ", ".join(sorted(SKIP_REASONS))
+        raise ValueError(f"Unsupported skip reason '{reason}'. Use one of: {allowed}.")
+    return normalized_reason
 
 
 def normalize_text(value):
@@ -287,6 +302,8 @@ def build_lifecycle_record(session, status="success", return_code=0, command="",
         "component_name": COMPONENT_NAME,
         "record_type": session["record_type"],
         "status": status,
+        "skipped": False,
+        "skip_reason": "",
         "return_code": int(return_code),
         "command": normalize_text(command),
         "zone": session["zone"],
@@ -305,6 +322,45 @@ def build_lifecycle_record(session, status="success", return_code=0, command="",
         "total_carbon_kg": round(total_carbon_result["carbon_kg"], 10),
         "active_carbon_kg": round(active_carbon_result["carbon_kg"], 10),
         "carbon_source": total_carbon_result["carbon_source"],
+        "metadata": json.dumps(merged_metadata, sort_keys=True),
+    }
+
+
+def build_skipped_lifecycle_record(stage_name, pipeline_name, run_id, zone, skip_reason, status="success", metadata=None):
+    stage_name = validate_finite_lifecycle_stage(stage_name)
+    skip_reason = validate_skip_reason(skip_reason)
+    timestamp = utc_now_iso()
+    carbon_result = estimate_carbon_kg(0.0, zone)
+    merged_metadata = dict(metadata or {})
+
+    return {
+        "schema_version": SCHEMA_VERSION,
+        "pipeline_name": pipeline_name,
+        "run_id": run_id,
+        "lifecycle_stage": stage_name,
+        "component_name": COMPONENT_NAME,
+        "record_type": stage_name,
+        "status": status,
+        "skipped": True,
+        "skip_reason": skip_reason,
+        "return_code": 0,
+        "command": "",
+        "zone": zone,
+        "start_timestamp": timestamp,
+        "end_timestamp": timestamp,
+        "duration_seconds": 0.0,
+        "avg_cpu_percent": 0.0,
+        "peak_cpu_percent": 0.0,
+        "avg_memory_percent": 0.0,
+        "peak_memory_percent": 0.0,
+        "total_power_watts": 0.0,
+        "active_power_watts": 0.0,
+        "total_energy_kwh": 0.0,
+        "active_energy_kwh": 0.0,
+        "carbon_intensity_kg_per_kwh": round(carbon_result["carbon_intensity_kg_per_kwh"], 6),
+        "total_carbon_kg": 0.0,
+        "active_carbon_kg": 0.0,
+        "carbon_source": carbon_result["carbon_source"],
         "metadata": json.dumps(merged_metadata, sort_keys=True),
     }
 
@@ -331,6 +387,35 @@ def stop_session(stage_name, pipeline_name, run_id, zone, status="success", retu
     print(f"Duration: {record['duration_seconds']} seconds")
     print(f"Total Energy: {record['total_energy_kwh']} kWh")
     print(f"Total Carbon: {record['total_carbon_kg']} kgCO2eq")
+    return 0 if csv_saved else 1
+
+
+def skip_session(stage_name, pipeline_name, run_id, zone, skip_reason, status="success", metadata=None):
+    stage_name = validate_finite_lifecycle_stage(stage_name)
+    paths = session_paths(stage_name, pipeline_name, run_id)
+    if paths["session"].exists():
+        existing = read_json(paths["session"])
+        if is_process_running(existing.get("sampler_pid")):
+            print("Monitoring session already exists; refusing to write a skipped record over an active workload.")
+            return 1
+        cleanup_session_files(paths)
+
+    record = build_skipped_lifecycle_record(
+        stage_name,
+        pipeline_name,
+        run_id,
+        zone,
+        skip_reason,
+        status=status,
+        metadata=metadata,
+    )
+    csv_saved = persist_record(record)
+
+    print("Lifecycle monitoring skipped.")
+    print(f"Lifecycle stage: {record['lifecycle_stage']}")
+    print(f"Status: {record['status']}")
+    print(f"Skipped: {record['skipped']}")
+    print(f"Skip reason: {record['skip_reason']}")
     return 0 if csv_saved else 1
 
 
@@ -401,6 +486,14 @@ def build_parser():
             subparser.add_argument("--return-code", type=int, default=0)
             subparser.add_argument("--command", default="")
 
+    skip_parser = subparsers.add_parser("skip")
+    skip_parser.add_argument("--stage", required=True, type=validate_finite_lifecycle_stage, metavar="{release,deploy}")
+    skip_parser.add_argument("--pipeline", required=True)
+    skip_parser.add_argument("--run-id", required=True)
+    skip_parser.add_argument("--zone", default="LK")
+    skip_parser.add_argument("--reason", required=True, type=validate_skip_reason, choices=sorted(SKIP_REASONS))
+    skip_parser.add_argument("--status", default="success", choices=["success", "failed", "canceled"])
+
     operate_parser = subparsers.add_parser("operate")
     operate_parser.add_argument("--stage", required=True, type=validate_lifecycle_stage, metavar="{operate}")
 
@@ -429,6 +522,8 @@ def main(argv=None):
             )
         if args.action == "cancel":
             return cancel_session(args.stage, args.pipeline, args.run_id, args.zone)
+        if args.action == "skip":
+            return skip_session(args.stage, args.pipeline, args.run_id, args.zone, args.reason, status=args.status)
         if args.action == "operate":
             return operate_placeholder(args)
         if args.action == "_sample":

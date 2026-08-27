@@ -47,13 +47,16 @@ NUMERIC_COLS = [
     "carbon_intensity_kg_per_kwh",
 ]
 
-DEFAULT_STAGE_ORDER = ["build", "test", "deploy"]
+DEFAULT_STAGE_ORDER = ["release", "deploy", "operate"]
 PP1_ANOMALY_METRICS = [
     "workload_duration_seconds",
     "overhead_percentage",
     "total_energy_kwh",
     "total_carbon_kg",
 ]
+
+TRUE_VALUES = {"true", "1", "yes", "y", "on"}
+FALSE_VALUES = {"false", "0", "no", "n", "off", ""}
 
 
 def get_mongo_client():
@@ -93,6 +96,27 @@ def load_metrics():
     return pd.DataFrame(), "No data source"
 
 
+def normalize_skipped_value(value):
+    if isinstance(value, bool):
+        return value
+    if value is None or pd.isna(value):
+        return False
+    normalized = str(value).strip().lower()
+    if normalized in TRUE_VALUES:
+        return True
+    if normalized in FALSE_VALUES:
+        return False
+    return False
+
+
+def workload_analytics_dataframe(df):
+    if df is None or df.empty:
+        return df.copy() if df is not None else pd.DataFrame()
+    if "skipped" not in df.columns:
+        return df.copy()
+    return df[~df["skipped"].map(normalize_skipped_value)].copy()
+
+
 def prepare_metrics_dataframe(df):
     prepared = df.copy()
 
@@ -104,8 +128,20 @@ def prepare_metrics_dataframe(df):
     prepared["run_id"] = prepared["run_id"].fillna("unknown-run").astype(str)
 
     if "stage" not in prepared.columns:
-        prepared["stage"] = "unknown"
-    prepared["stage"] = prepared["stage"].fillna("unknown").astype(str)
+        prepared["stage"] = prepared["lifecycle_stage"] if "lifecycle_stage" in prepared.columns else "unknown"
+    elif "lifecycle_stage" in prepared.columns:
+        stage_values = prepared["stage"].fillna("").astype(str).str.strip()
+        prepared.loc[stage_values == "", "stage"] = prepared.loc[stage_values == "", "lifecycle_stage"]
+    prepared["stage"] = prepared["stage"].fillna("unknown").astype(str).str.strip().str.lower()
+    prepared["stage"] = prepared["stage"].where(prepared["stage"] != "", "unknown")
+
+    if "skipped" not in prepared.columns:
+        prepared["skipped"] = False
+    prepared["skipped"] = prepared["skipped"].apply(normalize_skipped_value).astype(bool)
+
+    if "skip_reason" not in prepared.columns:
+        prepared["skip_reason"] = ""
+    prepared["skip_reason"] = prepared["skip_reason"].fillna("").astype(str).str.strip()
 
     jenkins_stage_duration_present = "jenkins_stage_duration_seconds" in prepared.columns
     prepared["jenkins_stage_duration_captured"] = (
@@ -641,8 +677,15 @@ def neutralize_health_explanation(explanation):
     return text
 
 
+def format_skip_reason(reason):
+    normalized = str(reason or "").strip()
+    if not normalized:
+        return ""
+    return normalized.replace("_", " ").title()
+
+
 def build_lifecycle_sections(display_rows, statistical_alerts, ml_results):
-    """Group existing monitor stage data under the PP2 lifecycle labels for display only."""
+    """Group normalized Monitor lifecycle data under Release, Deploy, and Operate labels."""
     stage_rows = display_rows.to_dict(orient="records") if display_rows is not None and not display_rows.empty else []
     stage_lookup = {str(row.get("stage", "")).lower(): row for row in stage_rows}
 
@@ -659,22 +702,22 @@ def build_lifecycle_sections(display_rows, statistical_alerts, ml_results):
             "key": "release",
             "label": "Release",
             "icon": "package-check",
-            "source_stages": [],
-            "note": "Awaiting integrated Monitor data for the Release stage.",
+            "source_stages": ["release"],
+            "note": "Current monitor data from Release lifecycle records.",
         },
         {
             "key": "deploy",
             "label": "Deploy",
             "icon": "rocket",
             "source_stages": ["deploy"],
-            "note": "Current monitor data mapped from available Deploy records.",
+            "note": "Current monitor data from Deploy lifecycle records.",
         },
         {
             "key": "operate",
             "label": "Operate",
             "icon": "activity",
-            "source_stages": [],
-            "note": "Awaiting integrated Monitor data for the Operate stage.",
+            "source_stages": ["operate"],
+            "note": "Current monitor data from Operate observation windows.",
         },
     ]
 
@@ -697,16 +740,23 @@ def build_lifecycle_sections(display_rows, statistical_alerts, ml_results):
         warning_count = sum(1 for alert in stat_alerts if alert.get("severity") == "warning")
         critical_count += sum(1 for item in ml_items if item.get("severity") == "critical")
         warning_count += sum(1 for item in ml_items if item.get("severity") == "warning")
-        total_energy = sum(float(row.get("total_energy_kwh") or 0.0) for row in rows)
-        total_carbon = sum(float(row.get("total_carbon_kg") or 0.0) for row in rows)
-        workload_duration = sum(float(row.get("workload_duration_seconds") or 0.0) for row in rows)
+        skipped_rows = [row for row in rows if normalize_skipped_value(row.get("skipped"))]
+        all_skipped = bool(rows) and len(skipped_rows) == len(rows)
+        total_energy = sum(float(row.get("total_energy_kwh") or 0.0) for row in rows if not normalize_skipped_value(row.get("skipped")))
+        total_carbon = sum(float(row.get("total_carbon_kg") or 0.0) for row in rows if not normalize_skipped_value(row.get("skipped")))
+        workload_duration = sum(float(row.get("workload_duration_seconds") or 0.0) for row in rows if not normalize_skipped_value(row.get("skipped")))
         failed = any(str(row.get("status", "")).lower() == "failed" for row in rows)
-        summary_status = "Failed" if failed else ("Available" if rows else "Not available")
-        summary_text = (
-            f"Monitor data available, {format_seconds(workload_duration)} workload duration."
-            if rows
-            else "Awaiting integrated Monitor data."
-        )
+        skip_reason = next((str(row.get("skip_reason_display") or "") for row in skipped_rows if row.get("skip_reason_display")), "")
+        if all_skipped:
+            summary_status = "Skipped"
+            summary_text = f"Reason: {skip_reason}" if skip_reason else "Lifecycle workload intentionally skipped."
+        else:
+            summary_status = "Failed" if failed else ("Available" if rows else "Not available")
+            summary_text = (
+                f"Monitor data available, {format_seconds(workload_duration)} workload duration."
+                if rows
+                else "Awaiting integrated Monitor data."
+            )
 
         sections.append(
             {
@@ -717,10 +767,12 @@ def build_lifecycle_sections(display_rows, statistical_alerts, ml_results):
                 "critical_count": critical_count,
                 "warning_count": warning_count,
                 "has_data": bool(rows),
+                "skipped": all_skipped,
+                "skip_reason_display": skip_reason,
                 "summary_status": summary_status,
                 "summary_text": summary_text,
-                "energy_display": format_kwh(total_energy) if rows else "Not available",
-                "carbon_display": format_gco2_from_kg(total_carbon) if rows else "Not available",
+                "energy_display": "Not applicable" if all_skipped else (format_kwh(total_energy) if rows else "Not available"),
+                "carbon_display": "Not applicable" if all_skipped else (format_gco2_from_kg(total_carbon) if rows else "Not available"),
             }
         )
 
@@ -2301,7 +2353,7 @@ APP_HTML = """
                     <div class="panel p-5">
                         <div class="flex items-center justify-between">
                             <div class="flex items-center gap-2"><i data-lucide="{{ stage.icon }}" class="w-5 h-5 text-emerald-600"></i><h3 class="font-extrabold text-slate-900">{{ stage.label }}</h3></div>
-                            <span class="text-xs font-semibold text-slate-500">{{ stage.summary_status }}</span>
+                            <span class="text-xs font-semibold {% if stage.skipped %}text-amber-700{% else %}text-slate-500{% endif %}">{{ stage.summary_status }}</span>
                         </div>
                         <p class="text-xs text-slate-500 mt-3">{{ stage.summary_text }}</p>
                         <div class="grid grid-cols-2 gap-3 mt-4 text-sm">
@@ -2320,13 +2372,13 @@ APP_HTML = """
             <section class="panel p-6">
                 <h2 class="text-lg font-extrabold text-slate-900">Stage execution information</h2>
                 {% if stage_detail.rows %}
-                <div class="overflow-x-auto mt-4"><table class="w-full text-left"><thead><tr class="text-[11px] uppercase tracking-wider text-slate-500 bg-slate-50"><th class="px-4 py-3">Monitor Stage</th><th class="px-4 py-3">Status</th><th class="px-4 py-3">Workload</th><th class="px-4 py-3">Full Duration</th><th class="px-4 py-3">Overhead</th><th class="px-4 py-3">CPU</th><th class="px-4 py-3">Energy</th><th class="px-4 py-3">Carbon</th></tr></thead><tbody class="divide-y divide-slate-200">{% for row in stage_detail.rows %}<tr><td class="px-4 py-3 font-bold">{{ row.stage_label }}</td><td class="px-4 py-3">{{ row.status }}</td><td class="px-4 py-3">{{ row.workload_duration_display }}</td><td class="px-4 py-3">{{ row.full_duration_display }}</td><td class="px-4 py-3">{{ row.overhead_percentage_display }}</td><td class="px-4 py-3">{{ row.avg_cpu_display }}</td><td class="px-4 py-3 font-mono text-emerald-700">{{ row.total_energy_display }}</td><td class="px-4 py-3 font-mono text-sky-700">{{ row.total_carbon_display }}</td></tr>{% endfor %}</tbody></table></div>
+                <div class="overflow-x-auto mt-4"><table class="w-full text-left"><thead><tr class="text-[11px] uppercase tracking-wider text-slate-500 bg-slate-50"><th class="px-4 py-3">Monitor Stage</th><th class="px-4 py-3">Status</th><th class="px-4 py-3">Reason</th><th class="px-4 py-3">Workload</th><th class="px-4 py-3">Full Duration</th><th class="px-4 py-3">Overhead</th><th class="px-4 py-3">CPU</th><th class="px-4 py-3">Energy</th><th class="px-4 py-3">Carbon</th></tr></thead><tbody class="divide-y divide-slate-200">{% for row in stage_detail.rows %}<tr><td class="px-4 py-3 font-bold">{{ row.stage_label }}</td><td class="px-4 py-3 font-bold {% if row.skipped %}text-amber-700{% else %}text-slate-700{% endif %}">{{ row.status_display }}</td><td class="px-4 py-3 text-sm text-slate-600">{{ row.skip_reason_display if row.skipped else '' }}</td><td class="px-4 py-3">{{ row.workload_duration_display }}</td><td class="px-4 py-3">{{ row.full_duration_display }}</td><td class="px-4 py-3">{{ row.overhead_percentage_display }}</td><td class="px-4 py-3">{{ row.avg_cpu_display }}</td><td class="px-4 py-3 font-mono text-emerald-700">{{ row.total_energy_display }}</td><td class="px-4 py-3 font-mono text-sky-700">{{ row.total_carbon_display }}</td></tr>{% endfor %}</tbody></table></div>
                 {% else %}<p class="text-sm text-slate-500 mt-3">Awaiting integrated Monitor data.</p>{% endif %}
             </section>
             <section class="panel p-6"><h2 class="text-lg font-extrabold text-slate-900">Component-specific information</h2><p class="text-sm text-slate-500 mt-2">Component-specific results will be displayed here after integration.</p></section>
             <section class="panel p-6">
                 <h2 class="text-lg font-extrabold text-slate-900">Monitor sustainability information</h2>
-                {% if stage_detail.rows %}<div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4 mt-4">{% for row in stage_detail.rows %}<div class="rounded-xl border border-slate-200 p-4"><p class="text-sm font-bold text-slate-800">Monitor data</p><p class="text-xs text-slate-500 mt-2">Peak CPU: {{ row.peak_cpu_display }}</p><p class="text-xs text-slate-500">Carbon intensity: {{ row.carbon_intensity_display }}</p><p class="text-xs text-slate-500">Infrastructure overhead: {{ row.overhead_percentage_display }}</p></div>{% endfor %}</div>{% else %}<p class="text-sm text-slate-500 mt-3">Awaiting integrated Monitor data.</p>{% endif %}
+                {% if stage_detail.rows %}<div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4 mt-4">{% for row in stage_detail.rows %}<div class="rounded-xl border border-slate-200 p-4"><p class="text-sm font-bold text-slate-800">Monitor data</p>{% if row.skipped %}<p class="text-xs text-amber-700 font-semibold mt-2">Skipped</p><p class="text-xs text-slate-500">Reason: {{ row.skip_reason_display }}</p><p class="text-xs text-slate-500">Energy: Not applicable</p><p class="text-xs text-slate-500">Carbon: Not applicable</p>{% else %}<p class="text-xs text-slate-500 mt-2">Peak CPU: {{ row.peak_cpu_display }}</p><p class="text-xs text-slate-500">Carbon intensity: {{ row.carbon_intensity_display }}</p><p class="text-xs text-slate-500">Infrastructure overhead: {{ row.overhead_percentage_display }}</p>{% endif %}</div>{% endfor %}</div>{% else %}<p class="text-sm text-slate-500 mt-3">Awaiting integrated Monitor data.</p>{% endif %}
             </section>
             <section class="panel p-6">
                 <h2 class="text-lg font-extrabold text-slate-900">Monitor Intelligence</h2>
@@ -2405,8 +2457,14 @@ def enrich_run_summary_for_pages(df, run_summary):
     for run_id in rows["run_id"].astype(str).tolist():
         current_run_df = df[df["run_id"] == run_id].copy()
         historical_df = df[df["run_id"] != run_id].copy()
-        anomalies = detect_stage_anomalies(current_run_df, calculate_stage_baselines(historical_df))
-        health = calculate_sustainability_score(current_run_df, calculate_pipeline_baseline(historical_df), anomalies)
+        analytics_current_run_df = workload_analytics_dataframe(current_run_df)
+        analytics_historical_df = workload_analytics_dataframe(historical_df)
+        anomalies = detect_stage_anomalies(analytics_current_run_df, calculate_stage_baselines(analytics_historical_df))
+        health = calculate_sustainability_score(
+            analytics_current_run_df,
+            calculate_pipeline_baseline(analytics_historical_df),
+            anomalies,
+        )
         health_scores.append(int(health.get("score", 0)))
         alert_counts.append(sum(1 for item in anomalies if normalize_display_severity(item.get("severity")) in {"critical", "warning"}))
         start_time, end_time = _run_times(current_run_df)
@@ -2422,16 +2480,20 @@ def enrich_run_summary_for_pages(df, run_summary):
 def build_run_context(df, run_summary, data_source, selected_run):
     current_run_df = df[df["run_id"] == selected_run].copy()
     historical_df = df[df["run_id"] != selected_run].copy()
-    ml_historical_df = historical_df
-    if "pipeline_name" in current_run_df.columns and "pipeline_name" in historical_df.columns:
-        selected_pipeline_names = current_run_df["pipeline_name"].dropna().astype(str).unique().tolist()
+    analytics_current_run_df = workload_analytics_dataframe(current_run_df)
+    analytics_historical_df = workload_analytics_dataframe(historical_df)
+    ml_historical_df = analytics_historical_df
+    if "pipeline_name" in analytics_current_run_df.columns and "pipeline_name" in analytics_historical_df.columns:
+        selected_pipeline_names = analytics_current_run_df["pipeline_name"].dropna().astype(str).unique().tolist()
         if selected_pipeline_names:
-            ml_historical_df = historical_df[historical_df["pipeline_name"].astype(str).isin(selected_pipeline_names)].copy()
-    stage_baseline_df = calculate_stage_baselines(historical_df)
-    pipeline_baseline = calculate_pipeline_baseline(historical_df)
-    anomalies = detect_stage_anomalies(current_run_df, stage_baseline_df)
-    health_score = calculate_sustainability_score(current_run_df, pipeline_baseline, anomalies)
-    ml_anomaly = detect_ml_anomalies(current_run_df, ml_historical_df)
+            ml_historical_df = analytics_historical_df[
+                analytics_historical_df["pipeline_name"].astype(str).isin(selected_pipeline_names)
+            ].copy()
+    stage_baseline_df = calculate_stage_baselines(analytics_historical_df)
+    pipeline_baseline = calculate_pipeline_baseline(analytics_historical_df)
+    anomalies = detect_stage_anomalies(analytics_current_run_df, stage_baseline_df)
+    health_score = calculate_sustainability_score(analytics_current_run_df, pipeline_baseline, anomalies)
+    ml_anomaly = detect_ml_anomalies(analytics_current_run_df, ml_historical_df)
 
     stage_order = ordered_stage_categories(current_run_df["stage"].tolist())
     current_run_df["stage"] = pd.Categorical(current_run_df["stage"], categories=stage_order, ordered=True)
@@ -2451,6 +2513,8 @@ def build_run_context(df, run_summary, data_source, selected_run):
             active_energy_kwh=("active_energy_kwh", "sum"),
             total_carbon_kg=("total_carbon_kg", "sum"),
             carbon_intensity_kg_per_kwh=("carbon_intensity_kg_per_kwh", "mean"),
+            skipped=("skipped", "all"),
+            skip_reason=("skip_reason", lambda values: next((str(value) for value in values if str(value).strip()), "")),
         )
         .reset_index()
     )
@@ -2469,6 +2533,19 @@ def build_run_context(df, run_summary, data_source, selected_run):
     display_rows["carbon_intensity_display"] = display_rows["carbon_intensity_kg_per_kwh"].apply(lambda value: f"{float(value):.4f} kg/kWh")
     display_rows["total_energy_display"] = display_rows["total_energy_kwh"].apply(format_kwh)
     display_rows["total_carbon_display"] = display_rows["total_carbon_kg"].apply(format_gco2_from_kg)
+    display_rows["skip_reason_display"] = display_rows["skip_reason"].apply(format_skip_reason)
+    display_rows["status_display"] = display_rows.apply(
+        lambda row: "SKIPPED" if normalize_skipped_value(row.get("skipped")) else str(row.get("status", "")).upper(),
+        axis=1,
+    )
+    display_rows.loc[display_rows["skipped"], "workload_duration_display"] = "Not applicable"
+    display_rows.loc[display_rows["skipped"], "full_duration_display"] = "Not applicable"
+    display_rows.loc[display_rows["skipped"], "overhead_percentage_display"] = "Not applicable"
+    display_rows.loc[display_rows["skipped"], "avg_cpu_display"] = "Not applicable"
+    display_rows.loc[display_rows["skipped"], "peak_cpu_display"] = "Not applicable"
+    display_rows.loc[display_rows["skipped"], "carbon_intensity_display"] = "Not applicable"
+    display_rows.loc[display_rows["skipped"], "total_energy_display"] = "Not applicable"
+    display_rows.loc[display_rows["skipped"], "total_carbon_display"] = "Not applicable"
 
     dashboard_anomalies = [normalize_dashboard_anomaly(item) for item in deduplicate_anomalies(anomalies, allowed_metrics=PP1_ANOMALY_METRICS, limit=8)]
     formatted_statistical_alerts = [{**format_dashboard_anomaly(item), "source": "Statistical"} for item in dashboard_anomalies if item.get("severity") in {"critical", "warning"}]
