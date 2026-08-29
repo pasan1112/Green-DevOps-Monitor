@@ -1,6 +1,7 @@
 from flask import Flask, abort, render_template_string, request
 import json
 import os
+import sqlite3
 
 import os
 
@@ -31,6 +32,7 @@ app = Flask(__name__)
 MONGO_DB_NAME = "green_devops_monitor"
 MONGO_COLLECTION_NAME = "pipeline_metrics"
 CSV_FALLBACK_PATH = "data/metrics.csv"
+DEPLOY_DB_PATH = "/opt/energy-profiller-hiran/deployments.db"
 
 NUMERIC_COLS = [
     "duration_seconds",
@@ -94,6 +96,149 @@ def load_metrics():
             pass
 
     return pd.DataFrame(), "No data source"
+
+
+def extract_build_number_from_run_id(run_id):
+    parts = str(run_id or "").rsplit("-", 1)
+    if len(parts) != 2:
+        return ""
+    candidate = parts[1].strip()
+    return candidate if candidate.isdigit() else ""
+
+
+def _sqlite_readonly_uri(path):
+    return f"file:{os.path.abspath(path).replace(os.sep, '/')}?mode=ro"
+
+
+def _row_value(row, key):
+    return row[key] if row is not None and key in row.keys() else None
+
+
+def load_deploy_data(pipeline_name, build_number, db_path=None):
+    if not pipeline_name or not build_number:
+        return None
+
+    path = db_path or os.getenv("DEPLOY_DB_PATH", DEPLOY_DB_PATH)
+    if not os.path.exists(path):
+        print(f"[Deploy DB] WARNING: Deploy database not found at {path}. Continuing with Monitor data only.")
+        return None
+
+    connection = None
+    try:
+        connection = sqlite3.connect(_sqlite_readonly_uri(path), uri=True)
+        connection.row_factory = sqlite3.Row
+        row = connection.execute(
+            """
+            SELECT
+                d.id AS deployment_id,
+                d.job_name AS deploy_job_name,
+                d.build_number AS deploy_build_number,
+                d.status AS deploy_status,
+                d.strategy AS deploy_strategy,
+                d.canary_weight AS deploy_canary_weight,
+                d.carbon_profile AS deploy_carbon_profile,
+                d.image AS deploy_image,
+                d.start_time AS deploy_start_time,
+                d.end_time AS deploy_end_time,
+                d.duration_minutes AS deploy_duration_minutes,
+                p.samples_collected AS deploy_samples_collected,
+                p.avg_cpu AS deploy_avg_cpu,
+                p.peak_cpu AS deploy_peak_cpu,
+                p.min_cpu AS deploy_min_cpu,
+                p.avg_memory AS deploy_avg_memory,
+                p.peak_memory AS deploy_peak_memory,
+                p.min_memory AS deploy_min_memory,
+                c.total_g_co2 AS deploy_total_g_co2,
+                c.total_kg_co2 AS deploy_total_kg_co2,
+                c.total_energy_kwh AS deploy_total_energy_kwh,
+                c.carbon_intensity_gco2 AS deploy_carbon_intensity_gco2,
+                c.intensity_source AS deploy_intensity_source,
+                c.strategy_carbon_profile AS deploy_strategy_carbon_profile,
+                c.infra_multiplier AS deploy_infra_multiplier
+            FROM deployments d
+            LEFT JOIN profiler_results p
+                ON p.deployment_id = d.id
+            LEFT JOIN carbon_reports c
+                ON c.deployment_id = d.id
+            WHERE d.job_name = ?
+                AND d.build_number = ?
+            ORDER BY d.id DESC, p.id DESC, c.id DESC
+            LIMIT 1
+            """,
+            (str(pipeline_name), str(build_number)),
+        ).fetchone()
+
+        if row is None:
+            return None
+
+        snapshot_rows = connection.execute(
+            """
+            SELECT
+                phase,
+                strategy,
+                infra_multiplier,
+                downtime_seconds,
+                canary_weight,
+                note,
+                snapshot_timestamp
+            FROM carbon_snapshots
+            WHERE deployment_id = ?
+            ORDER BY snapshot_timestamp ASC, id ASC
+            """,
+            (_row_value(row, "deployment_id"),),
+        ).fetchall()
+
+        snapshots = [
+            {
+                "phase": _row_value(snapshot, "phase"),
+                "strategy": _row_value(snapshot, "strategy"),
+                "infra_multiplier": _row_value(snapshot, "infra_multiplier"),
+                "downtime_seconds": _row_value(snapshot, "downtime_seconds"),
+                "canary_weight": _row_value(snapshot, "canary_weight"),
+                "note": _row_value(snapshot, "note"),
+                "snapshot_timestamp": _row_value(snapshot, "snapshot_timestamp"),
+            }
+            for snapshot in snapshot_rows
+        ]
+
+        return {
+            "deployment_id": _row_value(row, "deployment_id"),
+            "deployment": {
+                "status": _row_value(row, "deploy_status"),
+                "strategy": _row_value(row, "deploy_strategy"),
+                "canary_weight": _row_value(row, "deploy_canary_weight"),
+                "carbon_profile": _row_value(row, "deploy_carbon_profile"),
+                "image": _row_value(row, "deploy_image"),
+                "start_time": _row_value(row, "deploy_start_time"),
+                "end_time": _row_value(row, "deploy_end_time"),
+                "duration_minutes": _row_value(row, "deploy_duration_minutes"),
+            },
+            "profiler": {
+                "avg_cpu": _row_value(row, "deploy_avg_cpu"),
+                "peak_cpu": _row_value(row, "deploy_peak_cpu"),
+                "min_cpu": _row_value(row, "deploy_min_cpu"),
+                "avg_memory": _row_value(row, "deploy_avg_memory"),
+                "peak_memory": _row_value(row, "deploy_peak_memory"),
+                "min_memory": _row_value(row, "deploy_min_memory"),
+                "samples_collected": _row_value(row, "deploy_samples_collected"),
+            },
+            "carbon": {
+                "total_energy_kwh": _row_value(row, "deploy_total_energy_kwh"),
+                "total_g_co2": _row_value(row, "deploy_total_g_co2"),
+                "total_kg_co2": _row_value(row, "deploy_total_kg_co2"),
+                "carbon_intensity_gco2": _row_value(row, "deploy_carbon_intensity_gco2"),
+                "intensity_source": _row_value(row, "deploy_intensity_source"),
+                "strategy_carbon_profile": _row_value(row, "deploy_strategy_carbon_profile"),
+                "infra_multiplier": _row_value(row, "deploy_infra_multiplier"),
+            },
+            "snapshots": snapshots,
+        }
+    except (OSError, sqlite3.Error) as exc:
+        print(f"[Deploy DB] WARNING: Deploy database lookup failed: {exc}. Continuing with Monitor data only.")
+        return None
+    finally:
+        if connection is not None:
+            connection.close()
 
 
 def normalize_skipped_value(value):
@@ -304,6 +449,113 @@ def format_count(value):
 def format_decimal(value, decimals=4):
     numeric = 0.0 if value is None or pd.isna(value) else float(value)
     return f"{numeric:.{decimals}f}"
+
+
+def format_optional_text(value):
+    text = "" if value is None or pd.isna(value) else str(value).strip()
+    return text if text else "Not available"
+
+
+def format_optional_count(value):
+    if value is None or pd.isna(value):
+        return "Not available"
+    return format_count(value)
+
+
+def format_optional_percent(value):
+    if value is None or pd.isna(value):
+        return "Not available"
+    return format_percent(value)
+
+
+def format_optional_kwh(value):
+    if value is None or pd.isna(value):
+        return "Not available"
+    return format_kwh(value)
+
+
+def format_optional_gco2(value):
+    if value is None or pd.isna(value):
+        return "Not available"
+    numeric = float(value)
+    if numeric == 0:
+        return "0.000 gCO2"
+    if abs(numeric) < 1:
+        return f"{numeric:.4f} gCO2"
+    return f"{numeric:.2f} gCO2"
+
+
+def format_optional_minutes(value):
+    if value is None or pd.isna(value):
+        return "Not available"
+    return f"{float(value):.4f} min"
+
+
+def format_optional_intensity(value):
+    if value is None or pd.isna(value):
+        return "Not available"
+    return f"{float(value):.2f} gCO2/kWh"
+
+
+def format_optional_multiplier(value):
+    if value is None or pd.isna(value):
+        return "Not available"
+    return f"{float(value):.2f}x"
+
+
+def format_deploy_component_data(deploy_data):
+    if not deploy_data:
+        return None
+
+    deployment = deploy_data.get("deployment") or {}
+    profiler = deploy_data.get("profiler") or {}
+    carbon = deploy_data.get("carbon") or {}
+    snapshots = deploy_data.get("snapshots") or []
+
+    formatted_snapshots = []
+    for snapshot in snapshots:
+        formatted_snapshots.append(
+            {
+                "phase": format_optional_text(snapshot.get("phase")),
+                "strategy": format_optional_text(snapshot.get("strategy")),
+                "infra_multiplier": format_optional_multiplier(snapshot.get("infra_multiplier")),
+                "downtime_seconds": format_seconds(snapshot.get("downtime_seconds"))
+                if snapshot.get("downtime_seconds") is not None and not pd.isna(snapshot.get("downtime_seconds"))
+                else "Not available",
+                "canary_weight": format_optional_text(snapshot.get("canary_weight")),
+                "note": format_optional_text(snapshot.get("note")),
+                "snapshot_timestamp": format_optional_text(snapshot.get("snapshot_timestamp")),
+            }
+        )
+
+    return {
+        **deploy_data,
+        "status_display": format_optional_text(deployment.get("status")),
+        "strategy_display": format_optional_text(deployment.get("strategy")).replace("_", " ").title(),
+        "canary_weight_display": format_optional_text(deployment.get("canary_weight")),
+        "carbon_profile_display": format_optional_text(deployment.get("carbon_profile")),
+        "image_display": format_optional_text(deployment.get("image")),
+        "start_time_display": format_optional_text(deployment.get("start_time")),
+        "end_time_display": format_optional_text(deployment.get("end_time")),
+        "duration_display": format_optional_minutes(deployment.get("duration_minutes")),
+        "avg_cpu_display": format_optional_percent(profiler.get("avg_cpu")),
+        "peak_cpu_display": format_optional_percent(profiler.get("peak_cpu")),
+        "min_cpu_display": format_optional_percent(profiler.get("min_cpu")),
+        "avg_memory_display": format_optional_percent(profiler.get("avg_memory")),
+        "peak_memory_display": format_optional_percent(profiler.get("peak_memory")),
+        "min_memory_display": format_optional_percent(profiler.get("min_memory")),
+        "samples_collected_display": format_optional_count(profiler.get("samples_collected")),
+        "total_energy_display": format_optional_kwh(carbon.get("total_energy_kwh")),
+        "total_g_co2_display": format_optional_gco2(carbon.get("total_g_co2")),
+        "total_kg_co2_display": format_gco2_from_kg(carbon.get("total_kg_co2"))
+        if carbon.get("total_kg_co2") is not None and not pd.isna(carbon.get("total_kg_co2"))
+        else "Not available",
+        "carbon_intensity_display": format_optional_intensity(carbon.get("carbon_intensity_gco2")),
+        "intensity_source_display": format_optional_text(carbon.get("intensity_source")),
+        "strategy_carbon_profile_display": format_optional_text(carbon.get("strategy_carbon_profile")),
+        "infra_multiplier_display": format_optional_multiplier(carbon.get("infra_multiplier")),
+        "snapshots_display": formatted_snapshots,
+    }
 
 
 def format_equivalent(value, unit_suffix, tiny_suffix):
@@ -684,7 +936,7 @@ def format_skip_reason(reason):
     return normalized.replace("_", " ").title()
 
 
-def build_lifecycle_sections(display_rows, statistical_alerts, ml_results):
+def build_lifecycle_sections(display_rows, statistical_alerts, ml_results, deploy_component_data=None):
     """Group normalized Monitor lifecycle data under Release, Deploy, and Operate labels."""
     stage_rows = display_rows.to_dict(orient="records") if display_rows is not None and not display_rows.empty else []
     stage_lookup = {str(row.get("stage", "")).lower(): row for row in stage_rows}
@@ -758,6 +1010,11 @@ def build_lifecycle_sections(display_rows, statistical_alerts, ml_results):
                 else "Awaiting integrated Monitor data."
             )
 
+        section_deploy_data = deploy_component_data if definition["key"] == "deploy" and not all_skipped else None
+        if definition["key"] == "deploy" and not rows and section_deploy_data:
+            summary_status = "Available"
+            summary_text = "Deploy component data available for this Jenkins run."
+
         sections.append(
             {
                 **definition,
@@ -769,6 +1026,8 @@ def build_lifecycle_sections(display_rows, statistical_alerts, ml_results):
                 "has_data": bool(rows),
                 "skipped": all_skipped,
                 "skip_reason_display": skip_reason,
+                "deploy_data": section_deploy_data,
+                "deploy_data_missing": definition["key"] == "deploy" and bool(rows) and not all_skipped and not section_deploy_data,
                 "summary_status": summary_status,
                 "summary_text": summary_text,
                 "energy_display": "Not applicable" if all_skipped else (format_kwh(total_energy) if rows else "Not available"),
@@ -2360,6 +2619,21 @@ APP_HTML = """
                             <div><p class="text-xs uppercase font-bold text-slate-500">Energy</p><p class="font-bold text-slate-800">{{ stage.energy_display }}</p></div>
                             <div><p class="text-xs uppercase font-bold text-slate-500">Carbon</p><p class="font-bold text-slate-800">{{ stage.carbon_display }}</p></div>
                         </div>
+                        {% if stage.key == 'deploy' and stage.deploy_data and not stage.skipped %}
+                        <div class="mt-4 border-t border-slate-200 pt-4">
+                            <p class="text-xs uppercase font-bold text-slate-500">Deploy Component Data</p>
+                            <div class="grid grid-cols-2 gap-3 mt-3 text-sm">
+                                <div><p class="text-xs uppercase font-bold text-slate-500">Status</p><p class="font-bold text-slate-800">{{ stage.deploy_data.status_display }}</p></div>
+                                <div><p class="text-xs uppercase font-bold text-slate-500">Strategy</p><p class="font-bold text-slate-800">{{ stage.deploy_data.strategy_display }}</p></div>
+                                <div><p class="text-xs uppercase font-bold text-slate-500">Duration</p><p class="font-bold text-slate-800">{{ stage.deploy_data.duration_display }}</p></div>
+                                <div><p class="text-xs uppercase font-bold text-slate-500">Avg CPU</p><p class="font-bold text-slate-800">{{ stage.deploy_data.avg_cpu_display }}</p></div>
+                                <div><p class="text-xs uppercase font-bold text-slate-500">Energy</p><p class="font-bold text-slate-800">{{ stage.deploy_data.total_energy_display }}</p></div>
+                                <div><p class="text-xs uppercase font-bold text-slate-500">Carbon</p><p class="font-bold text-slate-800">{{ stage.deploy_data.total_g_co2_display }}</p></div>
+                            </div>
+                        </div>
+                        {% elif stage.key == 'deploy' and stage.deploy_data_missing %}
+                        <p class="text-xs text-slate-500 mt-4">Deploy component data unavailable for this run.</p>
+                        {% endif %}
                         <a href="/run/{{ selected_run|urlencode }}/{{ stage.key }}" class="mt-5 inline-flex items-center gap-2 rounded-lg bg-emerald-600 px-3 py-2 text-xs font-bold text-white hover:bg-emerald-700">View Stage <i data-lucide="arrow-right" class="w-3 h-3"></i></a>
                     </div>
                     {% endfor %}
@@ -2375,7 +2649,58 @@ APP_HTML = """
                 <div class="overflow-x-auto mt-4"><table class="w-full text-left"><thead><tr class="text-[11px] uppercase tracking-wider text-slate-500 bg-slate-50"><th class="px-4 py-3">Monitor Stage</th><th class="px-4 py-3">Status</th><th class="px-4 py-3">Reason</th><th class="px-4 py-3">Workload</th><th class="px-4 py-3">Full Duration</th><th class="px-4 py-3">Overhead</th><th class="px-4 py-3">CPU</th><th class="px-4 py-3">Energy</th><th class="px-4 py-3">Carbon</th></tr></thead><tbody class="divide-y divide-slate-200">{% for row in stage_detail.rows %}<tr><td class="px-4 py-3 font-bold">{{ row.stage_label }}</td><td class="px-4 py-3 font-bold {% if row.skipped %}text-amber-700{% else %}text-slate-700{% endif %}">{{ row.status_display }}</td><td class="px-4 py-3 text-sm text-slate-600">{{ row.skip_reason_display if row.skipped else '' }}</td><td class="px-4 py-3">{{ row.workload_duration_display }}</td><td class="px-4 py-3">{{ row.full_duration_display }}</td><td class="px-4 py-3">{{ row.overhead_percentage_display }}</td><td class="px-4 py-3">{{ row.avg_cpu_display }}</td><td class="px-4 py-3 font-mono text-emerald-700">{{ row.total_energy_display }}</td><td class="px-4 py-3 font-mono text-sky-700">{{ row.total_carbon_display }}</td></tr>{% endfor %}</tbody></table></div>
                 {% else %}<p class="text-sm text-slate-500 mt-3">Awaiting integrated Monitor data.</p>{% endif %}
             </section>
-            <section class="panel p-6"><h2 class="text-lg font-extrabold text-slate-900">Component-specific information</h2><p class="text-sm text-slate-500 mt-2">Component-specific results will be displayed here after integration.</p></section>
+            <section class="panel p-6">
+                <h2 class="text-lg font-extrabold text-slate-900">Component-specific information</h2>
+                {% if stage_detail.key == 'deploy' and stage_detail.skipped %}
+                <p class="text-sm text-slate-500 mt-2">Deploy component data is not applied because this Monitor Deploy lifecycle was skipped.</p>
+                {% elif stage_detail.key == 'deploy' and stage_detail.deploy_data %}
+                <div class="grid grid-cols-1 lg:grid-cols-3 gap-4 mt-4">
+                    <div class="rounded-xl border border-slate-200 p-4">
+                        <p class="text-sm font-bold text-slate-800">Deployment</p>
+                        <p class="text-xs text-slate-500 mt-2">Status: {{ stage_detail.deploy_data.status_display }}</p>
+                        <p class="text-xs text-slate-500">Strategy: {{ stage_detail.deploy_data.strategy_display }}</p>
+                        <p class="text-xs text-slate-500">Canary weight: {{ stage_detail.deploy_data.canary_weight_display }}</p>
+                        <p class="text-xs text-slate-500">Carbon profile: {{ stage_detail.deploy_data.carbon_profile_display }}</p>
+                        <p class="text-xs text-slate-500">Image: {{ stage_detail.deploy_data.image_display }}</p>
+                        <p class="text-xs text-slate-500">Start: {{ stage_detail.deploy_data.start_time_display }}</p>
+                        <p class="text-xs text-slate-500">End: {{ stage_detail.deploy_data.end_time_display }}</p>
+                        <p class="text-xs text-slate-500">Duration: {{ stage_detail.deploy_data.duration_display }}</p>
+                    </div>
+                    <div class="rounded-xl border border-slate-200 p-4">
+                        <p class="text-sm font-bold text-slate-800">Profiler</p>
+                        <p class="text-xs text-slate-500 mt-2">Samples: {{ stage_detail.deploy_data.samples_collected_display }}</p>
+                        <p class="text-xs text-slate-500">Avg CPU: {{ stage_detail.deploy_data.avg_cpu_display }}</p>
+                        <p class="text-xs text-slate-500">Peak CPU: {{ stage_detail.deploy_data.peak_cpu_display }}</p>
+                        <p class="text-xs text-slate-500">Min CPU: {{ stage_detail.deploy_data.min_cpu_display }}</p>
+                        <p class="text-xs text-slate-500">Avg memory: {{ stage_detail.deploy_data.avg_memory_display }}</p>
+                        <p class="text-xs text-slate-500">Peak memory: {{ stage_detail.deploy_data.peak_memory_display }}</p>
+                        <p class="text-xs text-slate-500">Min memory: {{ stage_detail.deploy_data.min_memory_display }}</p>
+                    </div>
+                    <div class="rounded-xl border border-slate-200 p-4">
+                        <p class="text-sm font-bold text-slate-800">Carbon</p>
+                        <p class="text-xs text-slate-500 mt-2">Energy: {{ stage_detail.deploy_data.total_energy_display }}</p>
+                        <p class="text-xs text-slate-500">Carbon: {{ stage_detail.deploy_data.total_g_co2_display }}</p>
+                        <p class="text-xs text-slate-500">Carbon kg: {{ stage_detail.deploy_data.total_kg_co2_display }}</p>
+                        <p class="text-xs text-slate-500">Intensity: {{ stage_detail.deploy_data.carbon_intensity_display }}</p>
+                        <p class="text-xs text-slate-500">Intensity source: {{ stage_detail.deploy_data.intensity_source_display }}</p>
+                        <p class="text-xs text-slate-500">Strategy profile: {{ stage_detail.deploy_data.strategy_carbon_profile_display }}</p>
+                        <p class="text-xs text-slate-500">Infra multiplier: {{ stage_detail.deploy_data.infra_multiplier_display }}</p>
+                    </div>
+                </div>
+                {% if stage_detail.deploy_data.snapshots_display %}
+                <div class="overflow-x-auto mt-4">
+                    <table class="w-full text-left">
+                        <thead><tr class="text-[11px] uppercase tracking-wider text-slate-500 bg-slate-50"><th class="px-4 py-3">Phase</th><th class="px-4 py-3">Strategy</th><th class="px-4 py-3">Multiplier</th><th class="px-4 py-3">Downtime</th><th class="px-4 py-3">Canary</th><th class="px-4 py-3">Note</th><th class="px-4 py-3">Snapshot Time</th></tr></thead>
+                        <tbody class="divide-y divide-slate-200">{% for snapshot in stage_detail.deploy_data.snapshots_display %}<tr><td class="px-4 py-3 text-sm text-slate-700">{{ snapshot.phase }}</td><td class="px-4 py-3 text-sm text-slate-700">{{ snapshot.strategy }}</td><td class="px-4 py-3 text-sm text-slate-700">{{ snapshot.infra_multiplier }}</td><td class="px-4 py-3 text-sm text-slate-700">{{ snapshot.downtime_seconds }}</td><td class="px-4 py-3 text-sm text-slate-700">{{ snapshot.canary_weight }}</td><td class="px-4 py-3 text-sm text-slate-700">{{ snapshot.note }}</td><td class="px-4 py-3 text-sm text-slate-700">{{ snapshot.snapshot_timestamp }}</td></tr>{% endfor %}</tbody>
+                    </table>
+                </div>
+                {% endif %}
+                {% elif stage_detail.key == 'deploy' %}
+                <p class="text-sm text-slate-500 mt-2">Deploy component data unavailable for this run.</p>
+                {% else %}
+                <p class="text-sm text-slate-500 mt-2">Component-specific results will be displayed here after integration.</p>
+                {% endif %}
+            </section>
             <section class="panel p-6">
                 <h2 class="text-lg font-extrabold text-slate-900">Monitor sustainability information</h2>
                 {% if stage_detail.rows %}<div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4 mt-4">{% for row in stage_detail.rows %}<div class="rounded-xl border border-slate-200 p-4"><p class="text-sm font-bold text-slate-800">Monitor data</p>{% if row.skipped %}<p class="text-xs text-amber-700 font-semibold mt-2">Skipped</p><p class="text-xs text-slate-500">Reason: {{ row.skip_reason_display }}</p><p class="text-xs text-slate-500">Energy: Not applicable</p><p class="text-xs text-slate-500">Carbon: Not applicable</p>{% else %}<p class="text-xs text-slate-500 mt-2">Peak CPU: {{ row.peak_cpu_display }}</p><p class="text-xs text-slate-500">Carbon intensity: {{ row.carbon_intensity_display }}</p><p class="text-xs text-slate-500">Infrastructure overhead: {{ row.overhead_percentage_display }}</p>{% endif %}</div>{% endfor %}</div>{% else %}<p class="text-sm text-slate-500 mt-3">Awaiting integrated Monitor data.</p>{% endif %}
@@ -2480,6 +2805,9 @@ def enrich_run_summary_for_pages(df, run_summary):
 def build_run_context(df, run_summary, data_source, selected_run):
     current_run_df = df[df["run_id"] == selected_run].copy()
     historical_df = df[df["run_id"] != selected_run].copy()
+    pipeline_name = str(current_run_df["pipeline_name"].dropna().astype(str).iloc[0]) if "pipeline_name" in current_run_df.columns and not current_run_df["pipeline_name"].dropna().empty else "Unknown pipeline"
+    build_number = extract_build_number_from_run_id(selected_run)
+    deploy_component_data = format_deploy_component_data(load_deploy_data(pipeline_name, build_number))
     analytics_current_run_df = workload_analytics_dataframe(current_run_df)
     analytics_historical_df = workload_analytics_dataframe(historical_df)
     ml_historical_df = analytics_historical_df
@@ -2564,13 +2892,17 @@ def build_run_context(df, run_summary, data_source, selected_run):
         "warning_count": warning_count,
         "overall_status": "Critical" if critical_count else ("Warning" if warning_count else "Normal"),
     }
-    lifecycle_sections = build_lifecycle_sections(display_rows, formatted_statistical_alerts, formatted_ml_results)
+    lifecycle_sections = build_lifecycle_sections(
+        display_rows,
+        formatted_statistical_alerts,
+        formatted_ml_results,
+        deploy_component_data=deploy_component_data,
+    )
 
     has_full_stage_timing = bool(current_run_df["jenkins_stage_duration_captured"].any())
     workload_duration = round(float(current_run_df["workload_duration_seconds"].sum()), 2)
     jenkins_stage_duration = round(float(current_run_df["jenkins_stage_duration_seconds"].sum()), 2)
     selected_run_status = "failed" if current_run_df["status"].astype(str).str.lower().eq("failed").any() else "success"
-    pipeline_name = str(current_run_df["pipeline_name"].dropna().astype(str).iloc[0]) if "pipeline_name" in current_run_df.columns and not current_run_df["pipeline_name"].dropna().empty else "Unknown pipeline"
     selected_run_start, selected_run_end = _run_times(current_run_df)
 
     return {

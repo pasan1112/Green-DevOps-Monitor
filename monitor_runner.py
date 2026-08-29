@@ -11,7 +11,12 @@ from pathlib import Path
 import psutil
 
 from energy.carbon_model import estimate_carbon_kg
-from energy.energy_model import estimate_energy_kwh
+from energy.energy_model import (
+    RaplReadError,
+    calculate_energy_from_rapl,
+    estimate_energy_kwh,
+    read_rapl_package_counter,
+)
 from storage.mongo_store import save_to_mongo
 
 
@@ -185,6 +190,41 @@ def start_sampler_process(session_file):
     return subprocess.Popen(command, **kwargs)
 
 
+def capture_rapl_start():
+    try:
+        rapl_counter = read_rapl_package_counter()
+        return {
+            "rapl_start_uj": rapl_counter["energy_uj"],
+            "rapl_max_energy_range_uj": rapl_counter["max_energy_range_uj"],
+        }
+    except RaplReadError as exc:
+        print(f"Warning: RAPL package energy unavailable at start: {exc}. Falling back to legacy estimate at stop.")
+        return {
+            "rapl_start_uj": None,
+            "rapl_max_energy_range_uj": None,
+        }
+
+
+def calculate_session_energy(session, avg_cpu, duration):
+    start_uj = session.get("rapl_start_uj")
+    max_range_uj = session.get("rapl_max_energy_range_uj")
+    if start_uj is not None and max_range_uj is not None:
+        try:
+            rapl_counter = read_rapl_package_counter()
+            return calculate_energy_from_rapl(
+                start_uj,
+                rapl_counter["energy_uj"],
+                duration,
+                max_range_uj,
+            )
+        except (RaplReadError, ValueError) as exc:
+            print(f"Warning: RAPL package energy unavailable at stop: {exc}. Falling back to legacy estimate.")
+    else:
+        print("Warning: RAPL package energy was not captured at start. Falling back to legacy estimate.")
+
+    return estimate_energy_kwh(avg_cpu, duration)
+
+
 def start_session(stage_name, pipeline_name, run_id, zone, interval=1.0, metadata=None):
     stage_name = validate_finite_lifecycle_stage(stage_name)
     paths = session_paths(stage_name, pipeline_name, run_id)
@@ -214,6 +254,7 @@ def start_session(stage_name, pipeline_name, run_id, zone, interval=1.0, metadat
         "sampling_interval_seconds": float(interval),
         "metadata": metadata or {},
     }
+    session.update(capture_rapl_start())
     write_json(paths["session"], session)
     process = start_sampler_process(paths["session"])
     session["sampler_pid"] = process.pid
@@ -288,7 +329,7 @@ def build_lifecycle_record(session, status="success", return_code=0, command="",
     avg_memory = sum(memory_values) / len(memory_values) if memory_values else 0.0
     peak_memory = max(memory_values) if memory_values else 0.0
 
-    energy_result = estimate_energy_kwh(avg_cpu, duration)
+    energy_result = calculate_session_energy(session, avg_cpu, duration)
     total_carbon_result = estimate_carbon_kg(energy_result["total_energy_kwh"], session["zone"])
     active_carbon_result = estimate_carbon_kg(energy_result["active_energy_kwh"], session["zone"])
     merged_metadata = dict(session.get("metadata") or {})

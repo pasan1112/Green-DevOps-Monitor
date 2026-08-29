@@ -436,22 +436,17 @@ pipeline {
             steps {
                 dir(env.WORK_DIR) {
                     script {
-                        if (params.FORCE_FULL_BUILD || env.URGENT_DEPLOY == 'true') {
-                            echo "=== Full Build Override (Force/Urgent). Skipping Optimizer analysis ==="
-                            env.OPTIMIZER_STATUS    = 'success'
-                            env.AFFECTED_MODULES    = 'all'
+                        if (params.FORCE_FULL_BUILD) {
+                            echo "=== FORCE FULL BUILD ==="
+                            echo "Skipping optimizer module analysis. Green AI strategy selection will run after the build."
+
+                            // Force ALL modules to be built and tested
+                            env.OPTIMIZER_STATUS     = 'success'
+                            env.AFFECTED_MODULES     = 'all'
                             env.MAVEN_BUILD_COMMANDS = 'mvn clean install -DskipTests'
                             env.MAVEN_TEST_COMMANDS  = 'mvn test'
                             env.OPTIMIZER_DURATION   = '0'
-                            def mockCarbon = buildMockCarbonData()
-                            env.CARBON_INTENSITY    = '320.0'
-                            env.GREEN_PROBABILITY   = '0.35'
-                            env.SCHEDULING_ACTION   = 'execute_now'
-                            env.SCHEDULING_ENGINE   = 'mock'
-                            env.SCHEDULED_HOUR      = ''
-                            env.TARGET_INTENSITY    = ''
-                            env.CARBON_HISTORY      = mockCarbon.history
-                            env.CARBON_FORECAST     = mockCarbon.forecast
+
                             return
                         }
 
@@ -738,7 +733,17 @@ pipeline {
         }
 
         stage('Confirm Deploy Strategy') {
-            when { expression { !params.DRY_RUN && appAffected() && env.URGENT_DEPLOY != 'true' && env.BYPASS_GREEN != 'true' } }
+            when {
+                expression {
+                    !params.DRY_RUN &&
+                    appAffected() &&
+                    env.URGENT_DEPLOY != 'true' &&
+                    (
+                        env.BYPASS_GREEN != 'true' ||
+                        params.FORCE_FULL_BUILD
+                    )
+                }
+            }
             steps {
                 script {
                     def liveStrategy = greenCheck(singleShot: true)
@@ -755,7 +760,10 @@ pipeline {
 
                     def preSelected = env.DEPLOY_STRATEGY ?: ''
 
-                    if (preSelected && preSelected != liveStrategy) {
+                    if (params.FORCE_FULL_BUILD) {
+                        env.DEPLOY_STRATEGY = liveStrategy
+                        echo "🤖 FORCE FULL BUILD — Green AI selected deployment strategy: ${env.DEPLOY_STRATEGY}"
+                    } else if (preSelected && preSelected != liveStrategy) {
                         echo "⚠️ Carbon conditions shifted since scheduling:"
                         echo "   Pre-selected strategy : ${preSelected}"
                         echo "   Live check suggests   : ${liveStrategy}"
