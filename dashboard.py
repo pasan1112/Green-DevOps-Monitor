@@ -42,6 +42,8 @@ NUMERIC_COLS = [
     "overhead_percentage",
     "avg_cpu_percent",
     "peak_cpu_percent",
+    "avg_memory_percent",
+    "peak_memory_percent",
     "total_energy_kwh",
     "active_energy_kwh",
     "total_carbon_kg",
@@ -934,6 +936,19 @@ def format_skip_reason(reason):
     if not normalized:
         return ""
     return normalized.replace("_", " ").title()
+
+
+def summarize_stage_status(values):
+    statuses = [str(value or "").strip().lower() for value in values]
+    if any(status == "failed" for status in statuses):
+        return "failed"
+    if any(status == "aborted" for status in statuses):
+        return "aborted"
+    if any(status in {"cancelled", "canceled"} for status in statuses):
+        return "cancelled"
+    if any(status == "success" for status in statuses):
+        return "success"
+    return next((status for status in statuses if status), "unknown")
 
 
 def build_lifecycle_sections(display_rows, statistical_alerts, ml_results, deploy_component_data=None):
@@ -2485,8 +2500,16 @@ APP_HTML = """
     <script src="https://unpkg.com/lucide@latest"></script>
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&display=swap');
-        body { font-family: 'Plus Jakarta Sans', sans-serif; background: #f8fafc; color: #0f172a; min-height: 100vh; }
-        .panel { background: #fff; border: 1px solid #e2e8f0; border-radius: 1rem; box-shadow: 0 12px 30px rgba(15, 23, 42, 0.08); }
+        body { font-family: 'Plus Jakarta Sans', sans-serif; background: linear-gradient(135deg, #0f172a 0%, #1e293b 28%, #eef4f1 28%, #f8fafc 100%); color: #0f172a; min-height: 100vh; }
+        .panel { background: rgba(255, 255, 255, 0.94); border: 1px solid rgba(148, 163, 184, 0.28); border-radius: 1rem; box-shadow: 0 18px 45px rgba(15, 23, 42, 0.12); backdrop-filter: blur(10px); }
+        .console-chip { border: 1px solid rgba(148, 163, 184, 0.35); background: rgba(248, 250, 252, 0.88); }
+        .kpi-card { border: 1px solid rgba(148, 163, 184, 0.28); background: linear-gradient(180deg, #ffffff 0%, #f8fafc 100%); border-radius: .75rem; padding: 1rem; min-height: 106px; }
+        .status-success { color: #047857; background: #d1fae5; }
+        .status-skipped { color: #b45309; background: #fef3c7; }
+        .status-failed { color: #be123c; background: #ffe4e6; }
+        .status-cancelled, .status-aborted { color: #475569; background: #e2e8f0; }
+        .metric-bar-track { height: .55rem; border-radius: 999px; background: #e2e8f0; overflow: hidden; }
+        .metric-bar-fill { height: 100%; border-radius: 999px; background: linear-gradient(90deg, #10b981, #0ea5e9); }
         .status-pulse { width: 8px; height: 8px; border-radius: 50%; display: inline-block; animation: pulse 2s infinite; }
         @keyframes pulse { 0% { box-shadow: 0 0 0 0 rgba(34, 197, 94, .55); } 70% { box-shadow: 0 0 0 10px rgba(34, 197, 94, 0); } 100% { box-shadow: 0 0 0 0 rgba(34, 197, 94, 0); } }
     </style>
@@ -2621,14 +2644,13 @@ APP_HTML = """
                         </div>
                         {% if stage.key == 'deploy' and stage.deploy_data and not stage.skipped %}
                         <div class="mt-4 border-t border-slate-200 pt-4">
-                            <p class="text-xs uppercase font-bold text-slate-500">Deploy Component Data</p>
+                            <p class="text-xs uppercase font-bold text-slate-500">Deploy Component</p>
                             <div class="grid grid-cols-2 gap-3 mt-3 text-sm">
                                 <div><p class="text-xs uppercase font-bold text-slate-500">Status</p><p class="font-bold text-slate-800">{{ stage.deploy_data.status_display }}</p></div>
                                 <div><p class="text-xs uppercase font-bold text-slate-500">Strategy</p><p class="font-bold text-slate-800">{{ stage.deploy_data.strategy_display }}</p></div>
+                                <div><p class="text-xs uppercase font-bold text-slate-500">Carbon Profile</p><p class="font-bold text-slate-800">{{ stage.deploy_data.carbon_profile_display }}</p></div>
                                 <div><p class="text-xs uppercase font-bold text-slate-500">Duration</p><p class="font-bold text-slate-800">{{ stage.deploy_data.duration_display }}</p></div>
-                                <div><p class="text-xs uppercase font-bold text-slate-500">Avg CPU</p><p class="font-bold text-slate-800">{{ stage.deploy_data.avg_cpu_display }}</p></div>
-                                <div><p class="text-xs uppercase font-bold text-slate-500">Energy</p><p class="font-bold text-slate-800">{{ stage.deploy_data.total_energy_display }}</p></div>
-                                <div><p class="text-xs uppercase font-bold text-slate-500">Carbon</p><p class="font-bold text-slate-800">{{ stage.deploy_data.total_g_co2_display }}</p></div>
+                                <div class="col-span-2"><p class="text-xs uppercase font-bold text-slate-500">Image</p><p class="font-bold text-slate-800 break-all">{{ stage.deploy_data.image_display }}</p></div>
                             </div>
                         </div>
                         {% elif stage.key == 'deploy' and stage.deploy_data_missing %}
@@ -2645,8 +2667,28 @@ APP_HTML = """
             <div><a href="/run/{{ selected_run|urlencode }}" class="text-sm font-semibold text-emerald-700 hover:text-emerald-800">&larr; Back to Run #{{ selected_run }}</a><p class="text-xs font-bold uppercase tracking-[0.2em] text-emerald-600 mt-4">Stage Detail</p><h1 class="text-3xl font-extrabold text-slate-900 mt-1">{{ stage_detail.label }}</h1><p class="text-sm text-slate-600 mt-1">{{ stage_detail.note }}</p></div>
             <section class="panel p-6">
                 <h2 class="text-lg font-extrabold text-slate-900">Stage execution information</h2>
-                {% if stage_detail.rows %}
+                {% if stage_detail.key == 'deploy' and stage_detail.rows %}
+                <div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4 mt-4">
+                    {% for row in stage_detail.rows %}
+                    <div class="kpi-card">
+                        <p class="text-xs font-bold uppercase text-slate-500">Status</p>
+                        <span class="mt-2 inline-flex rounded-full px-3 py-1 text-xs font-black uppercase {% if row.status_display == 'SUCCESS' %}status-success{% elif row.status_display == 'SKIPPED' %}status-skipped{% elif row.status_display in ['ABORTED', 'CANCELLED', 'CANCELED'] %}status-cancelled{% else %}status-failed{% endif %}">{{ row.status_display }}</span>
+                    </div>
+                    {% if row.skipped or row.status_display in ['ABORTED', 'CANCELLED', 'CANCELED'] %}
+                    {% if row.skip_reason_display %}
+                    <div class="kpi-card"><p class="text-xs font-bold uppercase text-slate-500">Reason</p><p class="text-lg font-black text-slate-900 mt-2">{{ row.skip_reason_display }}</p></div>
+                    {% endif %}
+                    {% endif %}
+                    <div class="kpi-card"><p class="text-xs font-bold uppercase text-slate-500">Workload</p><p class="text-lg font-black text-slate-900 mt-2">{{ row.workload_duration_display }}</p></div>
+                    <div class="kpi-card"><p class="text-xs font-bold uppercase text-slate-500">Avg CPU</p><p class="text-lg font-black text-slate-900 mt-2">{{ row.avg_cpu_display }}</p></div>
+                    <div class="kpi-card"><p class="text-xs font-bold uppercase text-slate-500">Energy</p><p class="text-lg font-black text-emerald-700 mt-2">{{ row.total_energy_display }}</p></div>
+                    <div class="kpi-card"><p class="text-xs font-bold uppercase text-slate-500">Carbon</p><p class="text-lg font-black text-sky-700 mt-2">{{ row.total_carbon_display }}</p></div>
+                    {% endfor %}
+                </div>
+                {% elif stage_detail.rows %}
                 <div class="overflow-x-auto mt-4"><table class="w-full text-left"><thead><tr class="text-[11px] uppercase tracking-wider text-slate-500 bg-slate-50"><th class="px-4 py-3">Monitor Stage</th><th class="px-4 py-3">Status</th><th class="px-4 py-3">Reason</th><th class="px-4 py-3">Workload</th><th class="px-4 py-3">Full Duration</th><th class="px-4 py-3">Overhead</th><th class="px-4 py-3">CPU</th><th class="px-4 py-3">Energy</th><th class="px-4 py-3">Carbon</th></tr></thead><tbody class="divide-y divide-slate-200">{% for row in stage_detail.rows %}<tr><td class="px-4 py-3 font-bold">{{ row.stage_label }}</td><td class="px-4 py-3 font-bold {% if row.skipped %}text-amber-700{% else %}text-slate-700{% endif %}">{{ row.status_display }}</td><td class="px-4 py-3 text-sm text-slate-600">{{ row.skip_reason_display if row.skipped else '' }}</td><td class="px-4 py-3">{{ row.workload_duration_display }}</td><td class="px-4 py-3">{{ row.full_duration_display }}</td><td class="px-4 py-3">{{ row.overhead_percentage_display }}</td><td class="px-4 py-3">{{ row.avg_cpu_display }}</td><td class="px-4 py-3 font-mono text-emerald-700">{{ row.total_energy_display }}</td><td class="px-4 py-3 font-mono text-sky-700">{{ row.total_carbon_display }}</td></tr>{% endfor %}</tbody></table></div>
+                {% elif stage_detail.key == 'deploy' %}
+                <p class="text-sm text-slate-500 mt-3">Monitor Deploy data unavailable for this run.</p>
                 {% else %}<p class="text-sm text-slate-500 mt-3">Awaiting integrated Monitor data.</p>{% endif %}
             </section>
             <section class="panel p-6">
@@ -2654,38 +2696,31 @@ APP_HTML = """
                 {% if stage_detail.key == 'deploy' and stage_detail.skipped %}
                 <p class="text-sm text-slate-500 mt-2">Deploy component data is not applied because this Monitor Deploy lifecycle was skipped.</p>
                 {% elif stage_detail.key == 'deploy' and stage_detail.deploy_data %}
-                <div class="grid grid-cols-1 lg:grid-cols-3 gap-4 mt-4">
-                    <div class="rounded-xl border border-slate-200 p-4">
-                        <p class="text-sm font-bold text-slate-800">Deployment</p>
-                        <p class="text-xs text-slate-500 mt-2">Status: {{ stage_detail.deploy_data.status_display }}</p>
-                        <p class="text-xs text-slate-500">Strategy: {{ stage_detail.deploy_data.strategy_display }}</p>
-                        <p class="text-xs text-slate-500">Canary weight: {{ stage_detail.deploy_data.canary_weight_display }}</p>
-                        <p class="text-xs text-slate-500">Carbon profile: {{ stage_detail.deploy_data.carbon_profile_display }}</p>
-                        <p class="text-xs text-slate-500">Image: {{ stage_detail.deploy_data.image_display }}</p>
-                        <p class="text-xs text-slate-500">Start: {{ stage_detail.deploy_data.start_time_display }}</p>
-                        <p class="text-xs text-slate-500">End: {{ stage_detail.deploy_data.end_time_display }}</p>
-                        <p class="text-xs text-slate-500">Duration: {{ stage_detail.deploy_data.duration_display }}</p>
+                <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 mt-4">
+                    <div class="rounded-xl border border-slate-200 bg-white/80 p-4">
+                        <p class="text-sm font-bold text-slate-800">Deployment facts</p>
+                        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-3">
+                            <div><p class="text-xs uppercase font-bold text-slate-500">Status</p><p class="text-sm font-bold text-slate-800">{{ stage_detail.deploy_data.status_display }}</p></div>
+                            <div><p class="text-xs uppercase font-bold text-slate-500">Strategy</p><p class="text-sm font-bold text-slate-800">{{ stage_detail.deploy_data.strategy_display }}</p></div>
+                            {% if stage_detail.deploy_data.canary_weight_display != 'Not available' %}
+                            <div><p class="text-xs uppercase font-bold text-slate-500">Canary Weight</p><p class="text-sm font-bold text-slate-800">{{ stage_detail.deploy_data.canary_weight_display }}</p></div>
+                            {% endif %}
+                            <div><p class="text-xs uppercase font-bold text-slate-500">Carbon Profile</p><p class="text-sm font-bold text-slate-800">{{ stage_detail.deploy_data.carbon_profile_display }}</p></div>
+                            <div><p class="text-xs uppercase font-bold text-slate-500">Deploy Duration</p><p class="text-sm font-bold text-slate-800">{{ stage_detail.deploy_data.duration_display }}</p></div>
+                            <div><p class="text-xs uppercase font-bold text-slate-500">Profiler Samples</p><p class="text-sm font-bold text-slate-800">{{ stage_detail.deploy_data.samples_collected_display }}</p></div>
+                            <div class="sm:col-span-2"><p class="text-xs uppercase font-bold text-slate-500">Image</p><p class="text-sm font-bold text-slate-800 break-all">{{ stage_detail.deploy_data.image_display }}</p></div>
+                        </div>
                     </div>
-                    <div class="rounded-xl border border-slate-200 p-4">
-                        <p class="text-sm font-bold text-slate-800">Profiler</p>
-                        <p class="text-xs text-slate-500 mt-2">Samples: {{ stage_detail.deploy_data.samples_collected_display }}</p>
-                        <p class="text-xs text-slate-500">Avg CPU: {{ stage_detail.deploy_data.avg_cpu_display }}</p>
-                        <p class="text-xs text-slate-500">Peak CPU: {{ stage_detail.deploy_data.peak_cpu_display }}</p>
-                        <p class="text-xs text-slate-500">Min CPU: {{ stage_detail.deploy_data.min_cpu_display }}</p>
-                        <p class="text-xs text-slate-500">Avg memory: {{ stage_detail.deploy_data.avg_memory_display }}</p>
-                        <p class="text-xs text-slate-500">Peak memory: {{ stage_detail.deploy_data.peak_memory_display }}</p>
-                        <p class="text-xs text-slate-500">Min memory: {{ stage_detail.deploy_data.min_memory_display }}</p>
+                    {% if stage_detail.deploy_data.start_time_display != 'Not available' and stage_detail.deploy_data.end_time_display != 'Not available' %}
+                    <div class="rounded-xl border border-slate-200 bg-white/80 p-4">
+                        <p class="text-sm font-bold text-slate-800">Deployment timeline</p>
+                        <div class="mt-4 space-y-4">
+                            <div class="flex gap-3"><span class="mt-1 h-3 w-3 rounded-full bg-emerald-500"></span><div><p class="text-xs uppercase font-bold text-slate-500">Start</p><p class="text-sm font-semibold text-slate-800">{{ stage_detail.deploy_data.start_time_display }}</p></div></div>
+                            <div class="ml-1.5 h-8 border-l-2 border-dashed border-slate-300"></div>
+                            <div class="flex gap-3"><span class="mt-1 h-3 w-3 rounded-full bg-sky-500"></span><div><p class="text-xs uppercase font-bold text-slate-500">End</p><p class="text-sm font-semibold text-slate-800">{{ stage_detail.deploy_data.end_time_display }}</p></div></div>
+                        </div>
                     </div>
-                    <div class="rounded-xl border border-slate-200 p-4">
-                        <p class="text-sm font-bold text-slate-800">Carbon</p>
-                        <p class="text-xs text-slate-500 mt-2">Energy: {{ stage_detail.deploy_data.total_energy_display }}</p>
-                        <p class="text-xs text-slate-500">Carbon: {{ stage_detail.deploy_data.total_g_co2_display }}</p>
-                        <p class="text-xs text-slate-500">Carbon kg: {{ stage_detail.deploy_data.total_kg_co2_display }}</p>
-                        <p class="text-xs text-slate-500">Intensity: {{ stage_detail.deploy_data.carbon_intensity_display }}</p>
-                        <p class="text-xs text-slate-500">Intensity source: {{ stage_detail.deploy_data.intensity_source_display }}</p>
-                        <p class="text-xs text-slate-500">Strategy profile: {{ stage_detail.deploy_data.strategy_carbon_profile_display }}</p>
-                        <p class="text-xs text-slate-500">Infra multiplier: {{ stage_detail.deploy_data.infra_multiplier_display }}</p>
-                    </div>
+                    {% endif %}
                 </div>
                 {% if stage_detail.deploy_data.snapshots_display %}
                 <div class="overflow-x-auto mt-4">
@@ -2701,10 +2736,29 @@ APP_HTML = """
                 <p class="text-sm text-slate-500 mt-2">Component-specific results will be displayed here after integration.</p>
                 {% endif %}
             </section>
+            {% if stage_detail.key == 'deploy' and stage_detail.rows and not stage_detail.skipped %}
+            <section class="panel p-6">
+                <h2 class="text-lg font-extrabold text-slate-900">Resource utilization</h2>
+                <div class="grid grid-cols-1 lg:grid-cols-2 gap-5 mt-4">
+                    {% for row in stage_detail.rows %}
+                    <div class="rounded-xl border border-slate-200 bg-white/80 p-4">
+                        <div class="flex items-center justify-between gap-3"><p class="text-sm font-bold text-slate-800">Average CPU</p><p class="text-sm font-black text-emerald-700">{{ row.avg_cpu_display }}</p></div>
+                        <div class="metric-bar-track mt-3"><div class="metric-bar-fill" style="width: {{ row.avg_cpu_bar_width }}%;"></div></div>
+                    </div>
+                    <div class="rounded-xl border border-slate-200 bg-white/80 p-4">
+                        <div class="flex items-center justify-between gap-3"><p class="text-sm font-bold text-slate-800">Average Memory</p><p class="text-sm font-black text-sky-700">{{ row.avg_memory_display }}</p></div>
+                        <div class="metric-bar-track mt-3"><div class="metric-bar-fill" style="width: {{ row.avg_memory_bar_width }}%;"></div></div>
+                    </div>
+                    {% endfor %}
+                </div>
+            </section>
+            {% endif %}
+            {% if stage_detail.key != 'deploy' %}
             <section class="panel p-6">
                 <h2 class="text-lg font-extrabold text-slate-900">Monitor sustainability information</h2>
                 {% if stage_detail.rows %}<div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4 mt-4">{% for row in stage_detail.rows %}<div class="rounded-xl border border-slate-200 p-4"><p class="text-sm font-bold text-slate-800">Monitor data</p>{% if row.skipped %}<p class="text-xs text-amber-700 font-semibold mt-2">Skipped</p><p class="text-xs text-slate-500">Reason: {{ row.skip_reason_display }}</p><p class="text-xs text-slate-500">Energy: Not applicable</p><p class="text-xs text-slate-500">Carbon: Not applicable</p>{% else %}<p class="text-xs text-slate-500 mt-2">Peak CPU: {{ row.peak_cpu_display }}</p><p class="text-xs text-slate-500">Carbon intensity: {{ row.carbon_intensity_display }}</p><p class="text-xs text-slate-500">Infrastructure overhead: {{ row.overhead_percentage_display }}</p>{% endif %}</div>{% endfor %}</div>{% else %}<p class="text-sm text-slate-500 mt-3">Awaiting integrated Monitor data.</p>{% endif %}
             </section>
+            {% endif %}
             <section class="panel p-6">
                 <h2 class="text-lg font-extrabold text-slate-900">Monitor Intelligence</h2>
                 <div class="grid grid-cols-1 lg:grid-cols-3 gap-4 mt-4">
@@ -2837,6 +2891,8 @@ def build_run_context(df, run_summary, data_source, selected_run):
             jenkins_stage_duration_captured=("jenkins_stage_duration_captured", "max"),
             avg_cpu_percent=("avg_cpu_percent", "mean"),
             peak_cpu_percent=("peak_cpu_percent", "max"),
+            avg_memory_percent=("avg_memory_percent", "mean"),
+            peak_memory_percent=("peak_memory_percent", "max"),
             total_energy_kwh=("total_energy_kwh", "sum"),
             active_energy_kwh=("active_energy_kwh", "sum"),
             total_carbon_kg=("total_carbon_kg", "sum"),
@@ -2848,7 +2904,7 @@ def build_run_context(df, run_summary, data_source, selected_run):
     )
     stage_status = (
         current_run_df.groupby("stage", observed=True)["status"]
-        .agg(lambda x: "failed" if x.astype(str).str.lower().eq("failed").any() else "success")
+        .agg(summarize_stage_status)
         .reset_index()
     )
     display_rows = summary.merge(stage_status, on="stage", how="left")
@@ -2858,6 +2914,10 @@ def build_run_context(df, run_summary, data_source, selected_run):
     display_rows["overhead_percentage_display"] = display_rows.apply(lambda row: format_percent(row["overhead_percentage"]) if row["jenkins_stage_duration_captured"] else "Not captured", axis=1)
     display_rows["avg_cpu_display"] = display_rows["avg_cpu_percent"].apply(format_percent)
     display_rows["peak_cpu_display"] = display_rows["peak_cpu_percent"].apply(format_percent)
+    display_rows["avg_memory_display"] = display_rows["avg_memory_percent"].apply(format_percent)
+    display_rows["peak_memory_display"] = display_rows["peak_memory_percent"].apply(format_percent)
+    display_rows["avg_cpu_bar_width"] = display_rows["avg_cpu_percent"].clip(lower=0, upper=100)
+    display_rows["avg_memory_bar_width"] = display_rows["avg_memory_percent"].clip(lower=0, upper=100)
     display_rows["carbon_intensity_display"] = display_rows["carbon_intensity_kg_per_kwh"].apply(lambda value: f"{float(value):.4f} kg/kWh")
     display_rows["total_energy_display"] = display_rows["total_energy_kwh"].apply(format_kwh)
     display_rows["total_carbon_display"] = display_rows["total_carbon_kg"].apply(format_gco2_from_kg)
@@ -2871,6 +2931,10 @@ def build_run_context(df, run_summary, data_source, selected_run):
     display_rows.loc[display_rows["skipped"], "overhead_percentage_display"] = "Not applicable"
     display_rows.loc[display_rows["skipped"], "avg_cpu_display"] = "Not applicable"
     display_rows.loc[display_rows["skipped"], "peak_cpu_display"] = "Not applicable"
+    display_rows.loc[display_rows["skipped"], "avg_memory_display"] = "Not applicable"
+    display_rows.loc[display_rows["skipped"], "peak_memory_display"] = "Not applicable"
+    display_rows.loc[display_rows["skipped"], "avg_cpu_bar_width"] = 0
+    display_rows.loc[display_rows["skipped"], "avg_memory_bar_width"] = 0
     display_rows.loc[display_rows["skipped"], "carbon_intensity_display"] = "Not applicable"
     display_rows.loc[display_rows["skipped"], "total_energy_display"] = "Not applicable"
     display_rows.loc[display_rows["skipped"], "total_carbon_display"] = "Not applicable"
