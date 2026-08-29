@@ -79,19 +79,35 @@ def calculate_energy_from_rapl(start_uj, end_uj, duration_seconds, max_range_uj)
 
 
 def estimate_energy_kwh(avg_cpu_percent, duration_seconds):
-    """Legacy fallback used only when RAPL is unavailable.
+    """Estimate CPU package energy when RAPL is unavailable.
 
-    This preserves older Monitor behavior for compatibility, but successful
-    START/STOP RAPL reads must use calculate_energy_from_rapl() instead.
+    This is a fallback estimate for the Intel i5-1235U host.
+    RAPL remains the preferred measured-energy path.
     """
-    p_idle_watts = 10
-    p_max_watts = 80
+    IDLE_PACKAGE_WATTS = 3.0
+    MAX_PACKAGE_WATTS = 15.0
 
-    active_power_watts = (avg_cpu_percent / 100) * (p_max_watts - p_idle_watts)
-    total_power_watts = p_idle_watts + active_power_watts
+    cpu_utilization = max(0.0, min(float(avg_cpu_percent), 100.0)) / 100.0
 
-    total_energy_kwh = (total_power_watts * duration_seconds) / 3_600_000
-    active_energy_kwh = (active_power_watts * duration_seconds) / 3_600_000
+    total_power_watts = (
+        IDLE_PACKAGE_WATTS
+        + (MAX_PACKAGE_WATTS - IDLE_PACKAGE_WATTS) * cpu_utilization
+    )
+
+    active_power_watts = max(
+        0.0,
+        total_power_watts - IDLE_PACKAGE_WATTS
+    )
+
+    duration_seconds = max(0.0, float(duration_seconds or 0.0))
+
+    total_energy_kwh = (
+        total_power_watts * duration_seconds
+    ) / 3_600_000
+
+    active_energy_kwh = (
+        active_power_watts * duration_seconds
+    ) / 3_600_000
 
     return {
         "total_power_watts": total_power_watts,
