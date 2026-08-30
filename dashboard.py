@@ -2500,16 +2500,33 @@ APP_HTML = """
     <script src="https://unpkg.com/lucide@latest"></script>
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&display=swap');
-        body { font-family: 'Plus Jakarta Sans', sans-serif; background: linear-gradient(135deg, #0f172a 0%, #1e293b 28%, #eef4f1 28%, #f8fafc 100%); color: #0f172a; min-height: 100vh; }
-        .panel { background: rgba(255, 255, 255, 0.94); border: 1px solid rgba(148, 163, 184, 0.28); border-radius: 1rem; box-shadow: 0 18px 45px rgba(15, 23, 42, 0.12); backdrop-filter: blur(10px); }
+        body { font-family: 'Plus Jakarta Sans', sans-serif; background: radial-gradient(circle at 85% 8%, rgba(16, 185, 129, 0.12), transparent 30%), radial-gradient(circle at 12% 92%, rgba(14, 165, 233, 0.10), transparent 34%), linear-gradient(180deg, #f8fafc 0%, #eef4f1 100%); color: #0f172a; min-height: 100vh; }
+        .panel { background: rgba(255, 255, 255, 0.95); border: 1px solid rgba(148, 163, 184, 0.30); border-radius: 1rem; box-shadow: 0 16px 42px rgba(15, 23, 42, 0.10); backdrop-filter: blur(10px); transition: transform .18s ease, box-shadow .18s ease, border-color .18s ease; }
+        .panel:hover { border-color: rgba(16, 185, 129, 0.22); box-shadow: 0 20px 48px rgba(15, 23, 42, 0.12); }
+        .stage-hero { background: linear-gradient(135deg, rgba(255,255,255,.96), rgba(240,253,244,.94)); border: 1px solid rgba(148, 163, 184, 0.30); border-radius: 1.125rem; box-shadow: 0 18px 46px rgba(15, 23, 42, 0.10); padding: 1.5rem; }
+        .section-title { display: flex; align-items: center; gap: .75rem; }
+        .section-icon { width: 2.25rem; height: 2.25rem; display: inline-flex; align-items: center; justify-content: center; border-radius: .8rem; background: #ecfdf5; color: #059669; }
         .console-chip { border: 1px solid rgba(148, 163, 184, 0.35); background: rgba(248, 250, 252, 0.88); }
-        .kpi-card { border: 1px solid rgba(148, 163, 184, 0.28); background: linear-gradient(180deg, #ffffff 0%, #f8fafc 100%); border-radius: .75rem; padding: 1rem; min-height: 106px; }
+        .deploy-kpi-grid { display: grid; grid-template-columns: repeat(1, minmax(0, 1fr)); gap: 1rem; }
+        @media (min-width: 768px) { .deploy-kpi-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+        @media (min-width: 1280px) { .deploy-kpi-grid { grid-template-columns: repeat(5, minmax(0, 1fr)); } }
+        .kpi-card { border: 1px solid rgba(148, 163, 184, 0.30); background: linear-gradient(180deg, #ffffff 0%, #f8fafc 100%); border-radius: .875rem; padding: 1rem; min-height: 132px; display: flex; flex-direction: column; justify-content: space-between; box-shadow: inset 0 1px 0 rgba(255,255,255,.9); }
+        .kpi-icon { width: 2rem; height: 2rem; display: inline-flex; align-items: center; justify-content: center; border-radius: .75rem; }
+        .kpi-label { font-size: .68rem; line-height: 1rem; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; color: #64748b; }
+        .kpi-value { font-size: clamp(1.05rem, 1.45vw, 1.45rem); line-height: 1.2; font-weight: 900; color: #0f172a; overflow-wrap: anywhere; }
+        .detail-card { border: 1px solid rgba(148, 163, 184, 0.30); background: rgba(255,255,255,.82); border-radius: .9rem; padding: 1rem; }
+        .fact-label { font-size: .68rem; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; color: #64748b; }
+        .fact-value { font-size: .9rem; font-weight: 800; color: #0f172a; overflow-wrap: anywhere; }
+        .code-pill { display: inline-flex; max-width: 100%; border-radius: .65rem; background: #0f172a; color: #e2e8f0; padding: .45rem .65rem; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: .75rem; overflow-wrap: anywhere; }
         .status-success { color: #047857; background: #d1fae5; }
         .status-skipped { color: #b45309; background: #fef3c7; }
         .status-failed { color: #be123c; background: #ffe4e6; }
         .status-cancelled, .status-aborted { color: #475569; background: #e2e8f0; }
-        .metric-bar-track { height: .55rem; border-radius: 999px; background: #e2e8f0; overflow: hidden; }
+        .metric-bar-track { height: .65rem; border-radius: 999px; background: #e2e8f0; overflow: hidden; box-shadow: inset 0 1px 2px rgba(15,23,42,.10); }
         .metric-bar-fill { height: 100%; border-radius: 999px; background: linear-gradient(90deg, #10b981, #0ea5e9); }
+        .metric-bar-fill.cpu { background: linear-gradient(90deg, #06b6d4, #0284c7); }
+        .metric-bar-fill.memory { background: linear-gradient(90deg, #10b981, #059669); }
+        .timeline-line { width: 2px; min-height: 2rem; background: linear-gradient(180deg, #10b981, #38bdf8); margin-left: .42rem; }
         .status-pulse { width: 8px; height: 8px; border-radius: 50%; display: inline-block; animation: pulse 2s infinite; }
         @keyframes pulse { 0% { box-shadow: 0 0 0 0 rgba(34, 197, 94, .55); } 70% { box-shadow: 0 0 0 10px rgba(34, 197, 94, 0); } 100% { box-shadow: 0 0 0 0 rgba(34, 197, 94, 0); } }
     </style>
@@ -2527,7 +2544,7 @@ APP_HTML = """
             <div class="flex flex-wrap items-center gap-2">
                 <a href="/" class="rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50">Home</a>
                 <a href="/runs" class="rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50">Runs</a>
-                <div class="panel px-4 py-2 flex items-center gap-2">
+                <div class="console-chip rounded-xl px-4 py-2 flex items-center gap-2">
                     <span class="status-pulse bg-emerald-500"></span>
                     <span class="text-sm font-semibold text-slate-700">{{ data_source }}</span>
                 </div>
@@ -2664,25 +2681,39 @@ APP_HTML = """
         </main>
         {% elif page == 'stage' %}
         <main class="space-y-6">
-            <div><a href="/run/{{ selected_run|urlencode }}" class="text-sm font-semibold text-emerald-700 hover:text-emerald-800">&larr; Back to Run #{{ selected_run }}</a><p class="text-xs font-bold uppercase tracking-[0.2em] text-emerald-600 mt-4">Stage Detail</p><h1 class="text-3xl font-extrabold text-slate-900 mt-1">{{ stage_detail.label }}</h1><p class="text-sm text-slate-600 mt-1">{{ stage_detail.note }}</p></div>
-            <section class="panel p-6">
-                <h2 class="text-lg font-extrabold text-slate-900">Stage execution information</h2>
-                {% if stage_detail.key == 'deploy' and stage_detail.rows %}
-                <div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4 mt-4">
-                    {% for row in stage_detail.rows %}
-                    <div class="kpi-card">
-                        <p class="text-xs font-bold uppercase text-slate-500">Status</p>
-                        <span class="mt-2 inline-flex rounded-full px-3 py-1 text-xs font-black uppercase {% if row.status_display == 'SUCCESS' %}status-success{% elif row.status_display == 'SKIPPED' %}status-skipped{% elif row.status_display in ['ABORTED', 'CANCELLED', 'CANCELED'] %}status-cancelled{% else %}status-failed{% endif %}">{{ row.status_display }}</span>
+            <section class="stage-hero">
+                <div class="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-5">
+                    <div>
+                        <a href="/run/{{ selected_run|urlencode }}" class="inline-flex items-center gap-2 text-sm font-bold text-emerald-700 hover:text-emerald-800">&larr; Back to Run #{{ selected_run }}</a>
+                        <p class="text-xs font-bold uppercase tracking-[0.2em] text-emerald-600 mt-5">Stage Detail</p>
+                        <h1 class="text-4xl md:text-5xl font-black text-slate-950 mt-1">{{ stage_detail.label }}</h1>
+                        <p class="text-sm md:text-base text-slate-600 mt-2 max-w-2xl">{{ stage_detail.note }}</p>
                     </div>
-                    {% if row.skipped or row.status_display in ['ABORTED', 'CANCELLED', 'CANCELED'] %}
-                    {% if row.skip_reason_display %}
-                    <div class="kpi-card"><p class="text-xs font-bold uppercase text-slate-500">Reason</p><p class="text-lg font-black text-slate-900 mt-2">{{ row.skip_reason_display }}</p></div>
+                    <div class="flex items-center gap-3 rounded-2xl border border-emerald-200 bg-white/80 px-4 py-3">
+                        <span class="p-3 rounded-xl bg-emerald-100 text-emerald-700"><i data-lucide="{{ stage_detail.icon }}" class="w-6 h-6"></i></span>
+                        <div>
+                            <p class="text-xs font-bold uppercase tracking-wider text-slate-500">Pipeline</p>
+                            <p class="text-sm font-extrabold text-slate-900">{{ pipeline_name }}</p>
+                        </div>
+                    </div>
+                </div>
+            </section>
+            <section class="panel p-6">
+                <div class="section-title"><span class="section-icon"><i data-lucide="gauge" class="w-5 h-5"></i></span><div><h2 class="text-lg font-extrabold text-slate-900">Stage execution information</h2><p class="text-sm text-slate-500">Monitor execution metrics for this lifecycle stage.</p></div></div>
+                {% if stage_detail.key == 'deploy' and stage_detail.rows %}
+                <div class="deploy-kpi-grid mt-5">
+                    {% for row in stage_detail.rows %}
+                    {% if (row.skipped or row.status_display in ['ABORTED', 'CANCELLED', 'CANCELED']) and row.skip_reason_display %}
+                    <div class="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-semibold text-amber-800 md:col-span-3 xl:col-span-5">Reason: {{ row.skip_reason_display }}</div>
                     {% endif %}
-                    {% endif %}
-                    <div class="kpi-card"><p class="text-xs font-bold uppercase text-slate-500">Workload</p><p class="text-lg font-black text-slate-900 mt-2">{{ row.workload_duration_display }}</p></div>
-                    <div class="kpi-card"><p class="text-xs font-bold uppercase text-slate-500">Avg CPU</p><p class="text-lg font-black text-slate-900 mt-2">{{ row.avg_cpu_display }}</p></div>
-                    <div class="kpi-card"><p class="text-xs font-bold uppercase text-slate-500">Energy</p><p class="text-lg font-black text-emerald-700 mt-2">{{ row.total_energy_display }}</p></div>
-                    <div class="kpi-card"><p class="text-xs font-bold uppercase text-slate-500">Carbon</p><p class="text-lg font-black text-sky-700 mt-2">{{ row.total_carbon_display }}</p></div>
+                    <div class="kpi-card">
+                        <span class="kpi-icon bg-emerald-100 text-emerald-700"><i data-lucide="{% if row.status_display == 'SUCCESS' %}check-circle-2{% elif row.status_display == 'SKIPPED' %}pause-circle{% elif row.status_display in ['ABORTED', 'CANCELLED', 'CANCELED'] %}circle-slash{% else %}alert-triangle{% endif %}" class="w-5 h-5"></i></span>
+                        <div><p class="kpi-label">Status</p><span class="mt-2 inline-flex rounded-full px-3 py-1 text-xs font-black uppercase {% if row.status_display == 'SUCCESS' %}status-success{% elif row.status_display == 'SKIPPED' %}status-skipped{% elif row.status_display in ['ABORTED', 'CANCELLED', 'CANCELED'] %}status-cancelled{% else %}status-failed{% endif %}">{{ row.status_display }}</span></div>
+                    </div>
+                    <div class="kpi-card"><span class="kpi-icon bg-slate-100 text-slate-700"><i data-lucide="clock-3" class="w-5 h-5"></i></span><div><p class="kpi-label">Workload</p><p class="kpi-value mt-2">{{ row.workload_duration_display }}</p></div></div>
+                    <div class="kpi-card"><span class="kpi-icon bg-cyan-100 text-cyan-700"><i data-lucide="cpu" class="w-5 h-5"></i></span><div><p class="kpi-label">Avg CPU</p><p class="kpi-value mt-2 text-cyan-800">{{ row.avg_cpu_display }}</p></div></div>
+                    <div class="kpi-card"><span class="kpi-icon bg-amber-100 text-amber-700"><i data-lucide="zap" class="w-5 h-5"></i></span><div><p class="kpi-label">Energy</p><p class="kpi-value mt-2 text-emerald-700">{{ row.total_energy_display }}</p></div></div>
+                    <div class="kpi-card"><span class="kpi-icon bg-emerald-100 text-emerald-700"><i data-lucide="leaf" class="w-5 h-5"></i></span><div><p class="kpi-label">Carbon</p><p class="kpi-value mt-2 text-sky-700">{{ row.total_carbon_display }}</p></div></div>
                     {% endfor %}
                 </div>
                 {% elif stage_detail.rows %}
@@ -2692,32 +2723,34 @@ APP_HTML = """
                 {% else %}<p class="text-sm text-slate-500 mt-3">Awaiting integrated Monitor data.</p>{% endif %}
             </section>
             <section class="panel p-6">
-                <h2 class="text-lg font-extrabold text-slate-900">Component-specific information</h2>
+                <div class="section-title"><span class="section-icon"><i data-lucide="rocket" class="w-5 h-5"></i></span><div><h2 class="text-lg font-extrabold text-slate-900">Component-specific information</h2><p class="text-sm text-slate-500">Deployment metadata and execution context.</p></div></div>
                 {% if stage_detail.key == 'deploy' and stage_detail.skipped %}
-                <p class="text-sm text-slate-500 mt-2">Deploy component data is not applied because this Monitor Deploy lifecycle was skipped.</p>
+                <p class="mt-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-semibold text-amber-800">Deploy component data is not applied because this Monitor Deploy lifecycle was skipped.</p>
                 {% elif stage_detail.key == 'deploy' and stage_detail.deploy_data %}
-                <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 mt-4">
-                    <div class="rounded-xl border border-slate-200 bg-white/80 p-4">
-                        <p class="text-sm font-bold text-slate-800">Deployment facts</p>
-                        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-3">
-                            <div><p class="text-xs uppercase font-bold text-slate-500">Status</p><p class="text-sm font-bold text-slate-800">{{ stage_detail.deploy_data.status_display }}</p></div>
-                            <div><p class="text-xs uppercase font-bold text-slate-500">Strategy</p><p class="text-sm font-bold text-slate-800">{{ stage_detail.deploy_data.strategy_display }}</p></div>
+                <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 mt-5">
+                    <div class="detail-card">
+                        <div class="flex items-center justify-between gap-3">
+                            <p class="text-sm font-extrabold text-slate-800">Deployment facts</p>
+                            <span class="rounded-full px-3 py-1 text-[11px] font-black uppercase {% if stage_detail.deploy_data.status_display == 'SUCCESS' %}status-success{% elif stage_detail.deploy_data.status_display in ['ABORTED', 'CANCELLED', 'CANCELED'] %}status-cancelled{% elif stage_detail.deploy_data.status_display == 'Not available' %}bg-slate-100 text-slate-600{% else %}status-failed{% endif %}">{{ stage_detail.deploy_data.status_display }}</span>
+                        </div>
+                        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-4">
+                            <div><p class="fact-label">Strategy</p><p class="fact-value inline-flex items-center gap-2"><i data-lucide="git-branch" class="w-4 h-4 text-slate-500"></i>{{ stage_detail.deploy_data.strategy_display }}</p></div>
                             {% if stage_detail.deploy_data.canary_weight_display != 'Not available' %}
-                            <div><p class="text-xs uppercase font-bold text-slate-500">Canary Weight</p><p class="text-sm font-bold text-slate-800">{{ stage_detail.deploy_data.canary_weight_display }}</p></div>
+                            <div><p class="fact-label">Canary Weight</p><p class="fact-value"><span class="rounded-full bg-amber-100 px-2 py-1 text-xs text-amber-800">{{ stage_detail.deploy_data.canary_weight_display }}</span></p></div>
                             {% endif %}
-                            <div><p class="text-xs uppercase font-bold text-slate-500">Carbon Profile</p><p class="text-sm font-bold text-slate-800">{{ stage_detail.deploy_data.carbon_profile_display }}</p></div>
-                            <div><p class="text-xs uppercase font-bold text-slate-500">Deploy Duration</p><p class="text-sm font-bold text-slate-800">{{ stage_detail.deploy_data.duration_display }}</p></div>
-                            <div><p class="text-xs uppercase font-bold text-slate-500">Profiler Samples</p><p class="text-sm font-bold text-slate-800">{{ stage_detail.deploy_data.samples_collected_display }}</p></div>
-                            <div class="sm:col-span-2"><p class="text-xs uppercase font-bold text-slate-500">Image</p><p class="text-sm font-bold text-slate-800 break-all">{{ stage_detail.deploy_data.image_display }}</p></div>
+                            <div><p class="fact-label">Carbon Profile</p><p class="fact-value inline-flex items-center gap-2"><i data-lucide="sprout" class="w-4 h-4 text-emerald-600"></i>{{ stage_detail.deploy_data.carbon_profile_display }}</p></div>
+                            <div><p class="fact-label">Deploy Duration</p><p class="fact-value inline-flex items-center gap-2"><i data-lucide="timer" class="w-4 h-4 text-sky-600"></i>{{ stage_detail.deploy_data.duration_display }}</p></div>
+                            <div><p class="fact-label">Profiler Samples</p><p class="fact-value inline-flex items-center gap-2"><i data-lucide="list-checks" class="w-4 h-4 text-slate-500"></i>{{ stage_detail.deploy_data.samples_collected_display }}</p></div>
+                            <div class="sm:col-span-2"><p class="fact-label">Image</p><p class="code-pill mt-2">{{ stage_detail.deploy_data.image_display }}</p></div>
                         </div>
                     </div>
                     {% if stage_detail.deploy_data.start_time_display != 'Not available' and stage_detail.deploy_data.end_time_display != 'Not available' %}
-                    <div class="rounded-xl border border-slate-200 bg-white/80 p-4">
-                        <p class="text-sm font-bold text-slate-800">Deployment timeline</p>
-                        <div class="mt-4 space-y-4">
-                            <div class="flex gap-3"><span class="mt-1 h-3 w-3 rounded-full bg-emerald-500"></span><div><p class="text-xs uppercase font-bold text-slate-500">Start</p><p class="text-sm font-semibold text-slate-800">{{ stage_detail.deploy_data.start_time_display }}</p></div></div>
-                            <div class="ml-1.5 h-8 border-l-2 border-dashed border-slate-300"></div>
-                            <div class="flex gap-3"><span class="mt-1 h-3 w-3 rounded-full bg-sky-500"></span><div><p class="text-xs uppercase font-bold text-slate-500">End</p><p class="text-sm font-semibold text-slate-800">{{ stage_detail.deploy_data.end_time_display }}</p></div></div>
+                    <div class="detail-card">
+                        <p class="text-sm font-extrabold text-slate-800">Deployment timeline</p>
+                        <div class="mt-5">
+                            <div class="flex gap-3"><span class="mt-1 h-3.5 w-3.5 rounded-full bg-emerald-500 ring-4 ring-emerald-100"></span><div><p class="fact-label">Deployment started</p><p class="text-sm font-semibold text-slate-800 mt-1">{{ stage_detail.deploy_data.start_time_display }}</p></div></div>
+                            <div class="timeline-line my-2"></div>
+                            <div class="flex gap-3"><span class="mt-1 h-3.5 w-3.5 rounded-full bg-sky-500 ring-4 ring-sky-100"></span><div><p class="fact-label">Deployment completed</p><p class="text-sm font-semibold text-slate-800 mt-1">{{ stage_detail.deploy_data.end_time_display }}</p></div></div>
                         </div>
                     </div>
                     {% endif %}
@@ -2738,16 +2771,22 @@ APP_HTML = """
             </section>
             {% if stage_detail.key == 'deploy' and stage_detail.rows and not stage_detail.skipped %}
             <section class="panel p-6">
-                <h2 class="text-lg font-extrabold text-slate-900">Resource utilization</h2>
-                <div class="grid grid-cols-1 lg:grid-cols-2 gap-5 mt-4">
+                <div class="section-title"><span class="section-icon"><i data-lucide="bar-chart-3" class="w-5 h-5"></i></span><div><h2 class="text-lg font-extrabold text-slate-900">Resource utilization</h2><p class="text-sm text-slate-500">Monitor-observed resource usage.</p></div></div>
+                <div class="grid grid-cols-1 lg:grid-cols-2 gap-5 mt-5">
                     {% for row in stage_detail.rows %}
-                    <div class="rounded-xl border border-slate-200 bg-white/80 p-4">
-                        <div class="flex items-center justify-between gap-3"><p class="text-sm font-bold text-slate-800">Average CPU</p><p class="text-sm font-black text-emerald-700">{{ row.avg_cpu_display }}</p></div>
-                        <div class="metric-bar-track mt-3"><div class="metric-bar-fill" style="width: {{ row.avg_cpu_bar_width }}%;"></div></div>
+                    <div class="detail-card">
+                        <div class="flex items-center justify-between gap-3">
+                            <div class="flex items-center gap-3"><span class="kpi-icon bg-cyan-100 text-cyan-700"><i data-lucide="cpu" class="w-5 h-5"></i></span><p class="text-sm font-extrabold text-slate-800">Average CPU</p></div>
+                            <p class="text-lg font-black text-cyan-700">{{ row.avg_cpu_display }}</p>
+                        </div>
+                        <div class="metric-bar-track mt-4"><div class="metric-bar-fill cpu" style="width: {{ row.avg_cpu_bar_width }}%;"></div></div>
                     </div>
-                    <div class="rounded-xl border border-slate-200 bg-white/80 p-4">
-                        <div class="flex items-center justify-between gap-3"><p class="text-sm font-bold text-slate-800">Average Memory</p><p class="text-sm font-black text-sky-700">{{ row.avg_memory_display }}</p></div>
-                        <div class="metric-bar-track mt-3"><div class="metric-bar-fill" style="width: {{ row.avg_memory_bar_width }}%;"></div></div>
+                    <div class="detail-card">
+                        <div class="flex items-center justify-between gap-3">
+                            <div class="flex items-center gap-3"><span class="kpi-icon bg-emerald-100 text-emerald-700"><i data-lucide="memory-stick" class="w-5 h-5"></i></span><p class="text-sm font-extrabold text-slate-800">Average Memory</p></div>
+                            <p class="text-lg font-black text-emerald-700">{{ row.avg_memory_display }}</p>
+                        </div>
+                        <div class="metric-bar-track mt-4"><div class="metric-bar-fill memory" style="width: {{ row.avg_memory_bar_width }}%;"></div></div>
                     </div>
                     {% endfor %}
                 </div>
@@ -2760,11 +2799,21 @@ APP_HTML = """
             </section>
             {% endif %}
             <section class="panel p-6">
-                <h2 class="text-lg font-extrabold text-slate-900">Monitor Intelligence</h2>
-                <div class="grid grid-cols-1 lg:grid-cols-3 gap-4 mt-4">
-                    <div class="rounded-xl border border-slate-200 p-4"><p class="text-sm font-bold text-slate-800">Statistical Anomaly Detection</p>{% if stage_detail.statistical_alerts %}{% for alert in stage_detail.statistical_alerts %}<p class="text-xs text-slate-600 mt-2"><span class="font-bold">{{ alert.severity_label }}:</span> {{ alert.message }}</p>{% endfor %}{% else %}<p class="text-xs text-slate-500 mt-2">Normal. No warning or critical statistical anomalies for the selected stage data.</p>{% endif %}</div>
-                    <div class="rounded-xl border border-slate-200 p-4"><p class="text-sm font-bold text-slate-800">{{ stage_detail.label }} Isolation Forest</p>{% if stage_detail.ml_results %}{% for item in stage_detail.ml_results %}<p class="text-xs text-slate-600 mt-2">{{ item.prediction }} | {{ item.model_status }} | Samples {{ item.historical_samples }} | Score {{ item.anomaly_score_display }}</p>{% endfor %}{% else %}<p class="text-xs text-slate-500 mt-2">Awaiting integrated Monitor data.</p>{% endif %}</div>
-                    <div class="rounded-xl border border-slate-200 p-4"><p class="text-sm font-bold text-slate-800">Sustainability Health</p><p class="text-2xl font-black text-slate-900 mt-2">{{ health_score.score }}/100</p><p class="text-xs text-slate-500 mt-1">{{ health_score.grade }}. {{ health_explanation_display }}</p></div>
+                <div class="section-title"><span class="section-icon"><i data-lucide="brain-circuit" class="w-5 h-5"></i></span><div><h2 class="text-lg font-extrabold text-slate-900">Monitor Intelligence</h2><p class="text-sm text-slate-500">Anomaly detection and sustainability health.</p></div></div>
+                <div class="grid grid-cols-1 lg:grid-cols-3 gap-4 mt-5">
+                    <div class="detail-card">
+                        <div class="flex items-center justify-between gap-3"><p class="text-sm font-extrabold text-slate-800">Statistical Anomaly Detection</p><span class="kpi-icon bg-amber-100 text-amber-700"><i data-lucide="scan-search" class="w-5 h-5"></i></span></div>
+                        {% if stage_detail.statistical_alerts %}{% for alert in stage_detail.statistical_alerts %}<p class="text-xs text-slate-600 mt-3"><span class="font-black">{{ alert.severity_label }}:</span> {{ alert.message }}</p>{% endfor %}{% else %}<span class="mt-4 inline-flex rounded-full bg-emerald-100 px-3 py-1 text-xs font-black uppercase text-emerald-700">Normal</span><p class="text-xs text-slate-500 mt-3">No warning or critical statistical anomalies for the selected stage data.</p>{% endif %}
+                    </div>
+                    <div class="detail-card">
+                        <div class="flex items-center justify-between gap-3"><p class="text-sm font-extrabold text-slate-800">{{ stage_detail.label }} Isolation Forest</p><span class="kpi-icon bg-sky-100 text-sky-700"><i data-lucide="network" class="w-5 h-5"></i></span></div>
+                        {% if stage_detail.ml_results %}{% for item in stage_detail.ml_results %}<p class="text-xs text-slate-600 mt-3"><span class="font-black">{{ item.prediction }}</span> | {{ item.model_status }} | Samples {{ item.historical_samples }} | Score {{ item.anomaly_score_display }}</p>{% endfor %}{% else %}<p class="text-xs text-slate-500 mt-4">Awaiting integrated Monitor data.</p>{% endif %}
+                    </div>
+                    <div class="detail-card">
+                        <div class="flex items-center justify-between gap-3"><p class="text-sm font-extrabold text-slate-800">Sustainability Health</p><span class="kpi-icon bg-emerald-100 text-emerald-700"><i data-lucide="shield-check" class="w-5 h-5"></i></span></div>
+                        <p class="text-4xl font-black text-slate-950 mt-4">{{ health_score.score }}<span class="text-base text-slate-500">/100</span></p>
+                        <p class="text-xs font-semibold text-slate-500 mt-2">{{ health_score.grade }}. {{ health_explanation_display }}</p>
+                    </div>
                 </div>
             </section>
         </main>
