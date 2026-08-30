@@ -964,6 +964,50 @@ def summarize_stage_status(values):
     return next((status for status in statuses if status), "unknown")
 
 
+def build_stage_anomaly_summary(stat_alerts, ml_items):
+    critical_count = sum(1 for alert in stat_alerts if alert.get("severity") == "critical")
+    warning_count = sum(1 for alert in stat_alerts if alert.get("severity") == "warning")
+    critical_count += sum(1 for item in ml_items if item.get("severity") == "critical")
+    warning_count += sum(1 for item in ml_items if item.get("severity") == "warning")
+    return {
+        "critical_count": critical_count,
+        "warning_count": warning_count,
+        "overall_status": "Critical" if critical_count else ("Warning" if warning_count else "Normal"),
+    }
+
+
+def build_stage_baseline_context(stage_key, stat_alerts, ml_items):
+    source = next((item for item in ml_items if item.get("context_scope")), None)
+    if source is None:
+        source = next((item for item in stat_alerts if item.get("context_scope")), None)
+    if source is None:
+        return {
+            "label": stage_key.replace("_", " ").title(),
+            "context_scope": "Stage",
+            "strategy_display": "Not available",
+            "historical_samples": 0,
+            "historical_samples_display": "0",
+            "strategy_specific": False,
+            "fallback_reason": "",
+        }
+
+    strategy = format_optional_text(source.get("strategy")).replace("_", " ").title()
+    scope = format_context_scope(source.get("context_scope"))
+    samples = source.get("historical_samples", 0)
+    label = stage_key.replace("_", " ").title()
+    if source.get("strategy_specific") and strategy != "Not available" and strategy.lower() != "missing":
+        label = f"{label} / {strategy}"
+    return {
+        "label": label,
+        "context_scope": scope,
+        "strategy_display": strategy,
+        "historical_samples": int(samples or 0),
+        "historical_samples_display": format_count(samples or 0),
+        "strategy_specific": bool(source.get("strategy_specific", False)),
+        "fallback_reason": source.get("fallback_reason", ""),
+    }
+
+
 def build_lifecycle_sections(display_rows, statistical_alerts, ml_results, deploy_component_data=None):
     """Group normalized Monitor lifecycle data under Release, Deploy, and Operate labels."""
     stage_rows = display_rows.to_dict(orient="records") if display_rows is not None and not display_rows.empty else []
@@ -1016,10 +1060,9 @@ def build_lifecycle_sections(display_rows, statistical_alerts, ml_results, deplo
             for stage_name in row_stage_names
             for item in ml_by_stage.get(stage_name, [])
         ]
-        critical_count = sum(1 for alert in stat_alerts if alert.get("severity") == "critical")
-        warning_count = sum(1 for alert in stat_alerts if alert.get("severity") == "warning")
-        critical_count += sum(1 for item in ml_items if item.get("severity") == "critical")
-        warning_count += sum(1 for item in ml_items if item.get("severity") == "warning")
+        stage_anomaly_summary = build_stage_anomaly_summary(stat_alerts, ml_items)
+        critical_count = stage_anomaly_summary["critical_count"]
+        warning_count = stage_anomaly_summary["warning_count"]
         skipped_rows = [row for row in rows if normalize_skipped_value(row.get("skipped"))]
         all_skipped = bool(rows) and len(skipped_rows) == len(rows)
         total_energy = sum(float(row.get("total_energy_kwh") or 0.0) for row in rows if not normalize_skipped_value(row.get("skipped")))
@@ -1051,6 +1094,8 @@ def build_lifecycle_sections(display_rows, statistical_alerts, ml_results, deplo
                 "ml_results": ml_items,
                 "critical_count": critical_count,
                 "warning_count": warning_count,
+                "anomaly_summary": stage_anomaly_summary,
+                "baseline_context": build_stage_baseline_context(definition["key"], stat_alerts, ml_items),
                 "has_data": bool(rows),
                 "skipped": all_skipped,
                 "skip_reason_display": skip_reason,
@@ -2651,11 +2696,30 @@ APP_HTML = """
                     <div><p class="text-xs font-bold uppercase text-slate-500">Start Time</p><p class="text-sm font-semibold text-slate-800 mt-1">{{ selected_run_start }}</p></div>
                     <div><p class="text-xs font-bold uppercase text-slate-500">End Time</p><p class="text-sm font-semibold text-slate-800 mt-1">{{ selected_run_end }}</p></div>
                     <div><p class="text-xs font-bold uppercase text-slate-500">Duration</p><p class="text-xl font-black text-slate-900 mt-1">{{ selected_run_duration_display }}</p></div>
-                    <div><p class="text-xs font-bold uppercase text-slate-500">Health Score</p><p class="text-xl font-black text-slate-900 mt-1">{{ health_score.score }}/100</p></div>
+                    <div><p class="text-xs font-bold uppercase text-slate-500">Pipeline Status</p><p class="text-xl font-black text-slate-900 mt-1">{{ selected_run_status|title }}</p></div>
                     <div><p class="text-xs font-bold uppercase text-slate-500">Total Energy</p><p class="text-xl font-black text-emerald-600 mt-1">{{ total_energy_display }}</p></div>
                     <div><p class="text-xs font-bold uppercase text-slate-500">Total Carbon</p><p class="text-xl font-black text-sky-600 mt-1">{{ total_carbon_display }}</p></div>
                     <div><p class="text-xs font-bold uppercase text-slate-500">Warnings</p><p class="text-xl font-black text-amber-600 mt-1">{{ anomaly_summary.warning_count }}</p></div>
                     <div><p class="text-xs font-bold uppercase text-slate-500">Critical</p><p class="text-xl font-black text-rose-600 mt-1">{{ anomaly_summary.critical_count }}</p></div>
+                </div>
+            </section>
+            <section class="panel p-6">
+                <div class="section-title"><span class="section-icon"><i data-lucide="shield-check" class="w-5 h-5"></i></span><div><h2 class="text-lg font-extrabold text-slate-900">Pipeline Sustainability Health</h2><p class="text-sm text-slate-500">Calculated across the complete pipeline run.</p></div></div>
+                <div class="mt-5 rounded-2xl border border-emerald-200 bg-gradient-to-br from-emerald-50 to-white p-5">
+                    <div class="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-5">
+                        <div>
+                            <p class="text-xs font-black uppercase tracking-[0.18em] text-emerald-700">Whole Pipeline Health</p>
+                            <p class="text-5xl font-black text-slate-950 mt-3">{{ health_score.score }}<span class="text-lg text-slate-500">/100</span></p>
+                            <div class="flex flex-wrap items-center gap-2 mt-3">
+                                <span class="rounded-full bg-emerald-100 px-3 py-1 text-xs font-black uppercase text-emerald-700">{{ health_score.grade }}</span>
+                                <span class="rounded-full px-3 py-1 text-xs font-black uppercase {% if health_score.status == 'Critical' %}status-failed{% elif health_score.status == 'Warning' %}status-skipped{% else %}status-success{% endif %}">{{ health_score.status }}</span>
+                            </div>
+                        </div>
+                        <div class="max-w-2xl">
+                            <p class="text-sm font-extrabold text-slate-900">Run-level sustainability signal</p>
+                            <p class="text-sm text-slate-600 mt-2">{{ health_explanation_display }}</p>
+                        </div>
+                    </div>
                 </div>
             </section>
             <section class="space-y-4">
@@ -2812,16 +2876,16 @@ APP_HTML = """
             </section>
             {% endif %}
             <section class="panel p-6">
-                <div class="section-title"><span class="section-icon"><i data-lucide="brain-circuit" class="w-5 h-5"></i></span><div><h2 class="text-lg font-extrabold text-slate-900">Monitor Intelligence</h2><p class="text-sm text-slate-500">Anomaly detection and sustainability health.</p></div></div>
+                <div class="section-title"><span class="section-icon"><i data-lucide="brain-circuit" class="w-5 h-5"></i></span><div><h2 class="text-lg font-extrabold text-slate-900">{{ stage_detail.label }} Anomaly Intelligence</h2><p class="text-sm text-slate-500">Analysis for this {{ stage_detail.label }} stage.</p></div></div>
                 <div class="mt-5 rounded-2xl border border-slate-200 bg-slate-950 p-5 text-white">
                     <div class="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
                         <div>
-                            <p class="text-xs font-black uppercase tracking-[0.18em] text-emerald-300">Overall anomaly state</p>
-                            <p class="text-3xl font-black mt-2 {% if anomaly_summary.overall_status == 'Critical' %}text-rose-300{% elif anomaly_summary.overall_status == 'Warning' %}text-amber-300{% else %}text-emerald-300{% endif %}">{{ anomaly_summary.overall_status }}</p>
+                            <p class="text-xs font-black uppercase tracking-[0.18em] text-emerald-300">Current stage anomaly state</p>
+                            <p class="text-3xl font-black mt-2 {% if stage_detail.anomaly_summary.overall_status == 'Critical' %}text-rose-300{% elif stage_detail.anomaly_summary.overall_status == 'Warning' %}text-amber-300{% else %}text-emerald-300{% endif %}">{{ stage_detail.anomaly_summary.overall_status }}</p>
                         </div>
                         <div class="grid grid-cols-2 gap-3 text-right">
-                            <div class="rounded-xl bg-white/8 px-4 py-3"><p class="text-xs uppercase font-bold text-slate-400">Warnings</p><p class="text-2xl font-black text-amber-300">{{ anomaly_summary.warning_count }}</p></div>
-                            <div class="rounded-xl bg-white/8 px-4 py-3"><p class="text-xs uppercase font-bold text-slate-400">Critical</p><p class="text-2xl font-black text-rose-300">{{ anomaly_summary.critical_count }}</p></div>
+                            <div class="rounded-xl bg-white/8 px-4 py-3"><p class="text-xs uppercase font-bold text-slate-400">Warnings</p><p class="text-2xl font-black text-amber-300">{{ stage_detail.anomaly_summary.warning_count }}</p></div>
+                            <div class="rounded-xl bg-white/8 px-4 py-3"><p class="text-xs uppercase font-bold text-slate-400">Critical</p><p class="text-2xl font-black text-rose-300">{{ stage_detail.anomaly_summary.critical_count }}</p></div>
                         </div>
                     </div>
                 </div>
@@ -2867,14 +2931,9 @@ APP_HTML = """
                 <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 mt-4">
                     <div class="detail-card">
                         <div class="flex items-center justify-between gap-3"><p class="text-sm font-extrabold text-slate-800">Baseline Context</p><span class="kpi-icon bg-slate-100 text-slate-700"><i data-lucide="database" class="w-5 h-5"></i></span></div>
-                        <p class="text-2xl font-black text-slate-950 mt-4">{{ health_score.baseline_context.label }}</p>
-                        <p class="text-xs text-slate-500 mt-2">Scope: {{ health_score.baseline_context.context_scope|replace('_', ' ')|title }} · Historical runs: {{ health_score.baseline_context.historical_samples }} · Strategy-specific: {{ 'Yes' if health_score.baseline_context.strategy_specific else 'No' }}</p>
-                        {% if health_score.baseline_context.fallback_reason %}<p class="text-xs text-amber-700 mt-2">{{ health_score.baseline_context.fallback_reason }}</p>{% endif %}
-                    </div>
-                    <div class="detail-card">
-                        <div class="flex items-center justify-between gap-3"><p class="text-sm font-extrabold text-slate-800">Sustainability Health</p><span class="kpi-icon bg-emerald-100 text-emerald-700"><i data-lucide="shield-check" class="w-5 h-5"></i></span></div>
-                        <p class="text-4xl font-black text-slate-950 mt-4">{{ health_score.score }}<span class="text-base text-slate-500">/100</span></p>
-                        <p class="text-xs font-semibold text-slate-500 mt-2">{{ health_score.grade }}. {{ health_explanation_display }}</p>
+                        <p class="text-2xl font-black text-slate-950 mt-4">{{ stage_detail.baseline_context.label }}</p>
+                        <p class="text-xs text-slate-500 mt-2">Scope: {{ stage_detail.baseline_context.context_scope }} | Historical runs: {{ stage_detail.baseline_context.historical_samples_display }} | Strategy-specific: {{ 'Yes' if stage_detail.baseline_context.strategy_specific else 'No' }}</p>
+                        {% if stage_detail.baseline_context.fallback_reason %}<p class="text-xs text-amber-700 mt-2">{{ stage_detail.baseline_context.fallback_reason }}</p>{% endif %}
                     </div>
                 </div>
             </section>
