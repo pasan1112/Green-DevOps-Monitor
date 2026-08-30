@@ -5,7 +5,7 @@ DEFAULT_CARBON_INTENSITY_KG_PER_KWH = 0.5
 
 
 def get_carbon_intensity_kg_per_kwh(zone="LK"):
-    api_key = os.getenv("ELECTRICITYMAPS_API_KEY")
+    api_key = "em_PumbkUMwDGwV9CMW7Cmgc3P6N2HmGmP6"
 
     if not api_key:
         return DEFAULT_CARBON_INTENSITY_KG_PER_KWH, "fallback_no_api_key"

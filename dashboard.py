@@ -75,7 +75,7 @@ def get_mongo_client():
 
 
 def load_metrics():
-    mongo_uri = os.getenv("MONGO_URI")
+    mongo_uri = "mongodb+srv://admin:admin1234@green-devops-monitor.xxflzzs.mongodb.net/"
     mongo_client_cls = get_mongo_client()
 
     if mongo_uri and mongo_client_cls is not None:
