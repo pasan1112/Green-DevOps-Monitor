@@ -58,6 +58,8 @@ def detect_stage_anomalies(current_run_df: pd.DataFrame, baseline_df: pd.DataFra
             continue
 
         baseline_row = baseline_rows.iloc[0]
+        if _to_float(baseline_row.get("historical_samples")) is not None and int(baseline_row.get("historical_samples") or 0) < int(baseline_row.get("minimum_training_samples") or 0):
+            continue
         for metric in ANOMALY_METRICS:
             anomaly = _build_anomaly(stage, metric, current_row.get(metric), baseline_row)
             if anomaly is not None:
@@ -119,6 +121,13 @@ def _build_anomaly(stage, metric, current_value, baseline_row):
         "z_score": None if z_score is None else round(z_score, 2),
         "severity": severity,
         "message": message,
+        "context_scope": baseline_row.get("context_scope", "stage"),
+        "pipeline_name": baseline_row.get("pipeline_name", ""),
+        "strategy": baseline_row.get("strategy", ""),
+        "historical_samples": int(baseline_row.get("historical_samples") or 0),
+        "strategy_specific": bool(baseline_row.get("strategy_specific", False)),
+        "fallback_occurred": bool(baseline_row.get("fallback_occurred", False)),
+        "fallback_reason": baseline_row.get("fallback_reason", ""),
     }
 
 

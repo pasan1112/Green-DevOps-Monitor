@@ -13,6 +13,7 @@ def calculate_sustainability_score(
     current_run_df: pd.DataFrame,
     baseline_df: Dict[str, float],
     anomalies: List[Dict],
+    stage_baseline_df: pd.DataFrame | None = None,
 ) -> Dict[str, object]:
     score = 100
 
@@ -41,15 +42,18 @@ def calculate_sustainability_score(
 
     explanation_bits = []
 
-    if _is_above_baseline(current_totals["total_energy_kwh"], baseline_df.get("total_energy_kwh_mean"), 30):
+    contextual_baseline = _contextual_baseline_totals(stage_baseline_df)
+    comparison_baseline = contextual_baseline or baseline_df
+
+    if _is_above_baseline(current_totals["total_energy_kwh"], comparison_baseline.get("total_energy_kwh_mean"), 30):
         score -= 10
         explanation_bits.append("total pipeline energy is above baseline")
 
-    if _is_above_baseline(current_totals["total_carbon_kg"], baseline_df.get("total_carbon_kg_mean"), 30):
+    if _is_above_baseline(current_totals["total_carbon_kg"], comparison_baseline.get("total_carbon_kg_mean"), 30):
         score -= 10
         explanation_bits.append("total pipeline carbon is above baseline")
 
-    if _is_above_baseline(current_totals["duration_seconds"], baseline_df.get("duration_seconds_mean"), 30):
+    if _is_above_baseline(current_totals["duration_seconds"], comparison_baseline.get("duration_seconds_mean"), 30):
         score -= 8
         explanation_bits.append("pipeline duration is above baseline")
 
@@ -80,13 +84,15 @@ def calculate_sustainability_score(
     else:
         status = anomaly_summary["overall_status"]
 
-    explanation = _build_explanation(score, explanation_bits, anomalies, baseline_df)
+    baseline_context = _baseline_context(stage_baseline_df, comparison_baseline)
+    explanation = _build_explanation(score, explanation_bits, anomalies, comparison_baseline)
 
     return {
         "score": int(round(score)),
         "grade": _grade_from_score(score),
         "status": status,
         "explanation": explanation,
+        "baseline_context": baseline_context,
     }
 
 
@@ -126,3 +132,63 @@ def _build_explanation(score, explanation_bits, anomalies, baseline_df):
         return f"{base_message} Key issue: {', '.join(explanation_bits)}."
 
     return base_message
+
+
+def _contextual_baseline_totals(stage_baseline_df: pd.DataFrame | None) -> Dict[str, float] | None:
+    if stage_baseline_df is None or stage_baseline_df.empty:
+        return None
+    usable = stage_baseline_df.copy()
+    if "historical_samples" in usable.columns and "minimum_training_samples" in usable.columns:
+        usable = usable[
+            pd.to_numeric(usable["historical_samples"], errors="coerce").fillna(0)
+            >= pd.to_numeric(usable["minimum_training_samples"], errors="coerce").fillna(0)
+        ].copy()
+    if usable.empty:
+        return None
+
+    baseline = {"run_count": int(pd.to_numeric(usable.get("historical_samples", 0), errors="coerce").fillna(0).max())}
+    for metric in ["duration_seconds", "total_energy_kwh", "total_carbon_kg"]:
+        column = f"{metric}_mean"
+        baseline[column] = (
+            float(pd.to_numeric(usable[column], errors="coerce").fillna(0).sum())
+            if column in usable.columns
+            else None
+        )
+    return baseline
+
+
+def _baseline_context(stage_baseline_df: pd.DataFrame | None, comparison_baseline: Dict[str, float]) -> Dict[str, object]:
+    if stage_baseline_df is None or stage_baseline_df.empty:
+        return {
+            "context_scope": "pipeline",
+            "label": "Pipeline baseline",
+            "historical_samples": int(comparison_baseline.get("run_count") or 0),
+            "strategy_specific": False,
+            "fallback_reason": "",
+        }
+
+    rows = stage_baseline_df.to_dict(orient="records")
+    usable_rows = [
+        row for row in rows
+        if int(row.get("historical_samples") or 0) >= int(row.get("minimum_training_samples") or 0)
+    ]
+    source_rows = usable_rows or rows
+    scopes = sorted({str(row.get("context_scope", "insufficient")) for row in source_rows})
+    stages = sorted({str(row.get("stage", "")).title() for row in source_rows if row.get("stage")})
+    strategies = sorted({
+        str(row.get("strategy", "")).title()
+        for row in source_rows
+        if row.get("strategy") and str(row.get("strategy")) != "missing"
+    })
+    fallback_reasons = [str(row.get("fallback_reason") or "") for row in source_rows if row.get("fallback_reason")]
+    sample_counts = [int(row.get("historical_samples") or 0) for row in source_rows]
+    strategy_specific = any(bool(row.get("strategy_specific")) for row in source_rows)
+    stage_label = " + ".join(stages) if stages else "Lifecycle"
+    strategy_label = f" / {' + '.join(strategies)}" if strategies and strategy_specific else ""
+    return {
+        "context_scope": ", ".join(scopes),
+        "label": f"{stage_label}{strategy_label}",
+        "historical_samples": min(sample_counts) if sample_counts else 0,
+        "strategy_specific": strategy_specific,
+        "fallback_reason": fallback_reasons[0] if fallback_reasons else "",
+    }

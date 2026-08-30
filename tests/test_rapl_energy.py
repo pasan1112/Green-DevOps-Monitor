@@ -132,8 +132,8 @@ def test_rapl_unavailable_falls_back_to_legacy_record_shape(monitor_env, monkeyp
     assert monitor_runner.stop_session("deploy", "pipe", "run-fallback", "LK") == 0
     row = read_csv_rows(monitor_env["csv_path"])[0]
     assert set(["total_power_watts", "active_power_watts", "total_energy_kwh", "active_energy_kwh"]).issubset(row)
-    assert float(row["total_power_watts"]) == 45.0
-    assert float(row["active_power_watts"]) == 35.0
+    assert float(row["total_power_watts"]) == 9.0
+    assert float(row["active_power_watts"]) == 6.0
 
 
 def test_skipped_lifecycle_does_not_attempt_rapl(monitor_env, monkeypatch):

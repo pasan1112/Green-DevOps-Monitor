@@ -6,6 +6,8 @@ from typing import Dict, List
 
 import pandas as pd
 
+from .baseline_model import LIFECYCLE_STAGES, MIN_CONTEXT_SAMPLES, normalize_lifecycle_stage, normalize_strategy, select_historical_context
+
 try:
     from sklearn.ensemble import IsolationForest
 except ImportError:  # pragma: no cover - depends on local environment setup
@@ -25,8 +27,8 @@ ML_FEATURE_COLUMNS = [
     "carbon_intensity_kg_per_kwh",
 ]
 
-STAGE_SPECIFIC_MODELS = ["build", "test", "deploy"]
-MIN_TRAINING_SAMPLES = 10
+STAGE_SPECIFIC_MODELS = LIFECYCLE_STAGES
+MIN_TRAINING_SAMPLES = MIN_CONTEXT_SAMPLES
 
 WARMING_UP_RESPONSE = {
     "enabled": False,
@@ -58,52 +60,56 @@ def detect_ml_anomalies(current_run_df: pd.DataFrame, historical_df: pd.DataFram
     historical_stage_records = _build_stage_records(historical_df)
     current_stage_records = _build_stage_records(current_run_df)
 
-    if IsolationForest is None:
-        return {
-            "enabled": False,
-            "status": "Warming Up",
-            "message": "scikit-learn is not installed yet. Install project requirements to enable Isolation Forest detection.",
-            "results": [
-                _build_warming_up_result(stage, _stage_sample_count(historical_stage_records, stage))
-                for stage in STAGE_SPECIFIC_MODELS
-            ],
-            "historical_samples_used": int(len(historical_stage_records)),
-            "model": "Stage-specific Isolation Forest",
-            "stage_models": _build_stage_model_summary(historical_stage_records, active_stages=set()),
-        }
-
     if current_stage_records.empty:
         return {
-            "enabled": True,
+            "enabled": False,
             "status": "Normal",
             "message": "No current stage data is available for ML anomaly detection.",
             "results": [],
             "historical_samples_used": int(len(historical_stage_records)),
             "model": "Stage-specific Isolation Forest",
-            "stage_models": _build_stage_model_summary(historical_stage_records, active_stages=set()),
+            "stage_models": _build_stage_model_summary(historical_stage_records, current_stage_records, active_stages=set()),
+        }
+
+    if IsolationForest is None:
+        return {
+            "enabled": False,
+            "status": "Warming Up",
+            "message": "scikit-learn is not installed yet. Install project requirements to enable Isolation Forest detection.",
+            "results": _build_dependency_warming_results(historical_stage_records, current_stage_records),
+            "historical_samples_used": int(len(historical_stage_records)),
+            "model": "Stage-specific Isolation Forest",
+            "stage_models": _build_stage_model_summary(historical_stage_records, current_stage_records, active_stages=set()),
         }
 
     results: List[Dict[str, object]] = []
     active_stages = set()
 
     for stage in STAGE_SPECIFIC_MODELS:
-        historical_stage_df = historical_stage_records[historical_stage_records["stage"] == stage].copy()
-        historical_samples = int(len(historical_stage_df))
+        current_stage_df = current_stage_records[current_stage_records["stage"] == stage].copy()
+        current_context = _current_stage_context(current_stage_df, stage)
+        historical_stage_df, context = select_historical_context(
+            historical_stage_records,
+            stage,
+            pipeline_name=current_context.get("pipeline_name"),
+            strategy=current_context.get("strategy"),
+            min_samples=MIN_TRAINING_SAMPLES,
+        )
+        historical_samples = int(context.get("historical_samples", len(historical_stage_df)))
 
         if historical_samples < MIN_TRAINING_SAMPLES:
-            results.append(_build_warming_up_result(stage, historical_samples))
+            results.append(_build_warming_up_result(stage, historical_samples, context))
             continue
 
         active_stages.add(stage)
-        current_stage_df = current_stage_records[current_stage_records["stage"] == stage].copy()
         if current_stage_df.empty:
-            results.append(_build_no_current_stage_result(stage, historical_samples))
+            results.append(_build_no_current_stage_result(stage, historical_samples, context))
             continue
 
         historical_features = _prepare_stage_features(historical_stage_df)
         current_features = _prepare_stage_features(current_stage_df)
         if historical_features.empty or current_features.empty:
-            results.append(_build_no_current_stage_result(stage, historical_samples))
+            results.append(_build_no_current_stage_result(stage, historical_samples, context))
             continue
 
         model = IsolationForest(contamination=0.15, random_state=42)
@@ -119,11 +125,12 @@ def detect_ml_anomalies(current_run_df: pd.DataFrame, historical_df: pd.DataFram
                 "stage": stage,
                 "model_status": "active",
                 "historical_samples": historical_samples,
+                **_context_result_fields(context),
                 "is_anomaly": is_anomaly,
                 "prediction": "Anomaly" if is_anomaly else "Normal",
                 "anomaly_score": round(score, 6),
                 "severity": severity,
-                "message": _ml_message(stage, is_anomaly, score),
+                "message": _ml_message(stage, is_anomaly, score, context),
             }
         )
 
@@ -140,7 +147,7 @@ def detect_ml_anomalies(current_run_df: pd.DataFrame, historical_df: pd.DataFram
         "results": results,
         "historical_samples_used": int(len(historical_stage_records)),
         "model": "Stage-specific Isolation Forest",
-        "stage_models": _build_stage_model_summary(historical_stage_records, active_stages=active_stages),
+        "stage_models": _build_stage_model_summary(historical_stage_records, current_stage_records, active_stages=active_stages),
     }
 
 
@@ -175,11 +182,57 @@ def _filter_historical_context(current_run_df: pd.DataFrame, historical_df: pd.D
     return filtered
 
 
-def _build_warming_up_result(stage: str, historical_samples: int) -> Dict[str, object]:
+def _current_stage_context(current_stage_df: pd.DataFrame, stage: str) -> Dict[str, str]:
+    if current_stage_df is None or current_stage_df.empty:
+        return {"stage": stage, "pipeline_name": "", "strategy": ""}
+    row = current_stage_df.iloc[0]
+    return {
+        "stage": stage,
+        "pipeline_name": str(row.get("pipeline_name") or ""),
+        "strategy": normalize_strategy(row.get("strategy")),
+    }
+
+
+def _build_dependency_warming_results(
+    historical_stage_records: pd.DataFrame,
+    current_stage_records: pd.DataFrame,
+) -> List[Dict[str, object]]:
+    results = []
+    for stage in STAGE_SPECIFIC_MODELS:
+        current_context = _current_stage_context(
+            current_stage_records[current_stage_records["stage"] == stage] if current_stage_records is not None and not current_stage_records.empty else pd.DataFrame(),
+            stage,
+        )
+        _, context = select_historical_context(
+            historical_stage_records,
+            stage,
+            pipeline_name=current_context.get("pipeline_name"),
+            strategy=current_context.get("strategy"),
+            min_samples=MIN_TRAINING_SAMPLES,
+        )
+        results.append(_build_warming_up_result(stage, int(context.get("historical_samples", 0)), context))
+    return results
+
+
+def _context_result_fields(context: Dict[str, object]) -> Dict[str, object]:
+    return {
+        "context_scope": context.get("context_scope", "insufficient"),
+        "pipeline_name": context.get("pipeline_name", ""),
+        "strategy": context.get("strategy", ""),
+        "strategy_specific": bool(context.get("strategy_specific", False)),
+        "fallback_occurred": bool(context.get("fallback_occurred", False)),
+        "fallback_reason": context.get("fallback_reason", ""),
+        "minimum_training_samples": int(context.get("minimum_training_samples", MIN_TRAINING_SAMPLES)),
+    }
+
+
+def _build_warming_up_result(stage: str, historical_samples: int, context: Dict[str, object] | None = None) -> Dict[str, object]:
+    context = context or {}
     return {
         "stage": stage,
         "model_status": "warming_up",
         "historical_samples": historical_samples,
+        **_context_result_fields(context),
         "is_anomaly": False,
         "prediction": "Warming Up",
         "anomaly_score": None,
@@ -191,11 +244,13 @@ def _build_warming_up_result(stage: str, historical_samples: int) -> Dict[str, o
     }
 
 
-def _build_no_current_stage_result(stage: str, historical_samples: int) -> Dict[str, object]:
+def _build_no_current_stage_result(stage: str, historical_samples: int, context: Dict[str, object] | None = None) -> Dict[str, object]:
+    context = context or {}
     return {
         "stage": stage,
         "model_status": "active",
         "historical_samples": historical_samples,
+        **_context_result_fields(context),
         "is_anomaly": False,
         "prediction": "Not Available",
         "anomaly_score": None,
@@ -210,14 +265,31 @@ def _stage_sample_count(stage_records: pd.DataFrame, stage: str) -> int:
     return int(len(stage_records[stage_records["stage"] == stage]))
 
 
-def _build_stage_model_summary(stage_records: pd.DataFrame, active_stages: set[str]) -> Dict[str, Dict[str, object]]:
+def _build_stage_model_summary(
+    stage_records: pd.DataFrame,
+    current_stage_records: pd.DataFrame | None = None,
+    active_stages: set[str] | None = None,
+) -> Dict[str, Dict[str, object]]:
+    active_stages = active_stages or set()
     summary = {}
     for stage in STAGE_SPECIFIC_MODELS:
-        historical_samples = _stage_sample_count(stage_records, stage)
+        current_context = _current_stage_context(
+            current_stage_records[current_stage_records["stage"] == stage] if current_stage_records is not None and not current_stage_records.empty else pd.DataFrame(),
+            stage,
+        )
+        _, context = select_historical_context(
+            stage_records,
+            stage,
+            pipeline_name=current_context.get("pipeline_name"),
+            strategy=current_context.get("strategy"),
+            min_samples=MIN_TRAINING_SAMPLES,
+        )
+        historical_samples = int(context.get("historical_samples", _stage_sample_count(stage_records, stage)))
         summary[stage] = {
             "model_status": "active" if stage in active_stages else "warming_up",
             "historical_samples": historical_samples,
             "minimum_training_samples": MIN_TRAINING_SAMPLES,
+            **_context_result_fields(context),
         }
     return summary
 
@@ -243,7 +315,7 @@ def _overall_ml_message(results: List[Dict[str, object]]) -> str:
             "warming stages continue to rely on statistical anomaly detection."
         )
     return (
-        "Stage-specific Isolation Forest models learn normal behavior separately for Build, Test, and Deploy "
+        "Stage-specific Isolation Forest models learn normal behavior separately for Release, Deploy, and Operate "
         "across duration, CPU, energy, carbon, and overhead."
     )
 
@@ -253,7 +325,9 @@ def _build_stage_records(df: pd.DataFrame) -> pd.DataFrame:
         return pd.DataFrame(
             columns=[
                 "run_id",
+                "pipeline_name",
                 "stage",
+                "strategy",
                 "workload_duration_seconds",
                 "jenkins_stage_duration_seconds",
                 "overhead_percentage",
@@ -272,10 +346,18 @@ def _build_stage_records(df: pd.DataFrame) -> pd.DataFrame:
         prepared["run_id"] = "unknown-run"
     prepared["run_id"] = prepared["run_id"].fillna("unknown-run").astype(str)
 
+    if "pipeline_name" not in prepared.columns:
+        prepared["pipeline_name"] = ""
+    prepared["pipeline_name"] = prepared["pipeline_name"].fillna("").astype(str)
+
     if "stage" not in prepared.columns:
         prepared["stage"] = "unknown"
-    prepared["stage"] = prepared["stage"].fillna("unknown").astype(str).str.strip().str.lower()
+    prepared["stage"] = prepared["stage"].map(normalize_lifecycle_stage)
     prepared.loc[prepared["stage"] == "", "stage"] = "unknown"
+
+    if "strategy" not in prepared.columns:
+        prepared["strategy"] = ""
+    prepared["strategy"] = prepared["strategy"].map(normalize_strategy)
 
     numeric_defaults = {
         "workload_duration_seconds": 0.0,
@@ -315,7 +397,7 @@ def _build_stage_records(df: pd.DataFrame) -> pd.DataFrame:
         )
 
     aggregated = (
-        prepared.groupby(["run_id", "stage"], dropna=False)
+        prepared.groupby(["run_id", "pipeline_name", "stage", "strategy"], dropna=False)
         .agg(
             workload_duration_seconds=("workload_duration_seconds", "sum"),
             jenkins_stage_duration_seconds=("jenkins_stage_duration_seconds", "sum"),
@@ -332,7 +414,7 @@ def _build_stage_records(df: pd.DataFrame) -> pd.DataFrame:
     )
 
     for column in aggregated.columns:
-        if column not in {"run_id", "stage"}:
+        if column not in {"run_id", "pipeline_name", "stage", "strategy"}:
             aggregated[column] = pd.to_numeric(aggregated[column], errors="coerce").fillna(0.0)
 
     return aggregated
@@ -346,10 +428,12 @@ def _ml_severity(is_anomaly: bool, score: float) -> str:
     return "warning"
 
 
-def _ml_message(stage: str, is_anomaly: bool, score: float) -> str:
+def _ml_message(stage: str, is_anomaly: bool, score: float, context: Dict[str, object] | None = None) -> str:
     stage_label = stage.replace("_", " ").title()
+    context = context or {}
+    context_label = str(context.get("context_scope", "stage")).replace("_", " ")
     if not is_anomaly:
-        return f"{stage_label} is within the learned normal pipeline pattern."
+        return f"{stage_label} is within the learned normal pattern for the {context_label} context."
     if score < -0.10:
-        return f"{stage_label} shows a strongly unusual stage pattern compared with historical runs."
-    return f"{stage_label} shows a mild unusual stage pattern compared with historical runs."
+        return f"{stage_label} shows a strongly unusual stage pattern compared with the {context_label} history."
+    return f"{stage_label} shows a mild unusual stage pattern compared with the {context_label} history."
