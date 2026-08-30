@@ -33,6 +33,7 @@ MONGO_DB_NAME = "green_devops_monitor"
 MONGO_COLLECTION_NAME = "pipeline_metrics"
 CSV_FALLBACK_PATH = "data/metrics.csv"
 DEPLOY_DB_PATH = "/opt/energy-profiller-hiran/deployments.db"
+RELEASE_API_BUILDS_URL = "http://release-dashboard:5050/api/builds"
 
 NUMERIC_COLS = [
     "duration_seconds",
@@ -106,6 +107,60 @@ def extract_build_number_from_run_id(run_id):
         return ""
     candidate = parts[1].strip()
     return candidate if candidate.isdigit() else ""
+
+
+def _release_api_url():
+    return os.getenv("RELEASE_API_BUILDS_URL", RELEASE_API_BUILDS_URL)
+
+
+def _normalize_release_key_part(value):
+    return " ".join(str(value or "").strip().split())
+
+
+def release_build_key(build):
+    job_name = _normalize_release_key_part((build or {}).get("job_name"))
+    build_number = _normalize_release_key_part((build or {}).get("build_number"))
+    if not job_name or not build_number:
+        return ""
+    return f"{job_name}-{build_number}"
+
+
+def load_release_builds(api_url=None, timeout_seconds=3):
+    """Read Release build records from the Release dashboard API without mutating anything."""
+    try:
+        import requests
+    except ImportError:
+        print("[Release API] WARNING: requests is not installed. Continuing with Monitor data only.")
+        return []
+
+    url = api_url or _release_api_url()
+    try:
+        response = requests.get(url, timeout=timeout_seconds)
+        response.raise_for_status()
+        payload = response.json()
+    except Exception as exc:
+        print(f"[Release API] WARNING: Release builds unavailable from {url}. Continuing with Monitor data only. Error: {exc}")
+        return []
+
+    if isinstance(payload, list):
+        return [item for item in payload if isinstance(item, dict)]
+    if isinstance(payload, dict):
+        for key in ("builds", "data", "records", "results"):
+            value = payload.get(key)
+            if isinstance(value, list):
+                return [item for item in value if isinstance(item, dict)]
+    print("[Release API] WARNING: Release builds response was not a list of records. Continuing with Monitor data only.")
+    return []
+
+
+def find_release_build_for_run(run_id, builds):
+    monitor_key = _normalize_release_key_part(run_id)
+    if not monitor_key:
+        return None
+    for build in builds or []:
+        if release_build_key(build) == monitor_key:
+            return build
+    return None
 
 
 def _sqlite_readonly_uri(path):
@@ -507,6 +562,75 @@ def format_optional_multiplier(value):
     if value is None or pd.isna(value):
         return "Not available"
     return f"{float(value):.2f}x"
+
+
+def format_release_probability(value):
+    if value is None or pd.isna(value):
+        return "Not available"
+    try:
+        numeric = float(value)
+    except (TypeError, ValueError):
+        return "Not available"
+    if abs(numeric) <= 1:
+        numeric *= 100
+    return f"{numeric:.0f}%"
+
+
+def format_release_seconds(value):
+    if value is None or pd.isna(value):
+        return "Not available"
+    try:
+        return format_seconds(value)
+    except (TypeError, ValueError):
+        return "Not available"
+
+
+def format_release_count(value):
+    if value is None or pd.isna(value):
+        return "Not available"
+    try:
+        return format_count(value)
+    except (TypeError, ValueError):
+        return "Not available"
+
+
+def format_release_intensity(value):
+    if value is None or pd.isna(value):
+        return "Not available"
+    try:
+        return format_optional_intensity(value)
+    except (TypeError, ValueError):
+        return "Not available"
+
+
+def format_release_list(value):
+    if isinstance(value, list):
+        return ", ".join(str(item) for item in value) if value else "None"
+    if value is None or pd.isna(value):
+        return "Not available"
+    text = str(value).strip()
+    return text if text else "Not available"
+
+
+def format_release_build_data(build):
+    if not build:
+        return None
+    status = format_optional_text(build.get("status"))
+    return {
+        "status_display": status.upper() if status != "Not available" else status,
+        "pipeline_type_display": format_optional_text(build.get("pipeline_type")).replace("_", " ").title(),
+        "green_probability_display": format_release_probability(build.get("green_probability")),
+        "scheduling_action_display": format_optional_text(build.get("scheduling_action")).replace("_", " ").title(),
+        "scheduling_engine_display": format_optional_text(build.get("scheduling_engine")),
+        "carbon_intensity_display": format_release_intensity(build.get("carbon_intensity")),
+        "affected_modules_display": format_release_list(build.get("affected_modules")),
+        "tests_executed_display": format_release_count(build.get("tests_executed")),
+        "tests_skipped_display": format_release_count(build.get("tests_skipped")),
+        "build_duration_display": format_release_seconds(build.get("build_duration_s")),
+        "test_duration_display": format_release_seconds(build.get("test_duration_s")),
+        "deploy_duration_display": format_release_seconds(build.get("deploy_duration_s")),
+        "total_duration_display": format_release_seconds(build.get("total_duration_s")),
+    }
 
 
 def format_deploy_component_data(deploy_data):
@@ -2704,6 +2828,25 @@ APP_HTML = """
                 </div>
             </section>
             <section class="panel p-6">
+                <div class="section-title"><span class="section-icon"><i data-lucide="package-check" class="w-5 h-5"></i></span><div><h2 class="text-lg font-extrabold text-slate-900">Release Intelligence</h2><p class="text-sm text-slate-500">Release decision context matched to this Monitor run.</p></div></div>
+                {% if release_build_data %}
+                <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4 mt-5">
+                    <div class="detail-card"><p class="fact-label">Green Probability</p><p class="text-2xl font-black text-emerald-700 mt-2">{{ release_build_data.green_probability_display }}</p></div>
+                    <div class="detail-card"><p class="fact-label">Scheduling Action</p><p class="fact-value mt-2">{{ release_build_data.scheduling_action_display }}</p></div>
+                    <div class="detail-card"><p class="fact-label">Scheduling Engine</p><p class="fact-value mt-2">{{ release_build_data.scheduling_engine_display }}</p></div>
+                    <div class="detail-card"><p class="fact-label">Pipeline Type</p><p class="fact-value mt-2">{{ release_build_data.pipeline_type_display }}</p></div>
+                    <div class="detail-card"><p class="fact-label">Release Carbon Intensity</p><p class="fact-value mt-2">{{ release_build_data.carbon_intensity_display }}</p></div>
+                    <div class="detail-card"><p class="fact-label">Tests Executed</p><p class="fact-value mt-2">{{ release_build_data.tests_executed_display }}</p></div>
+                    <div class="detail-card"><p class="fact-label">Tests Skipped</p><p class="fact-value mt-2">{{ release_build_data.tests_skipped_display }}</p></div>
+                    <div class="detail-card"><p class="fact-label">Release Status</p><span class="mt-2 inline-flex rounded-full px-3 py-1 text-xs font-black uppercase {% if release_build_data.status_display == 'SUCCESS' %}status-success{% elif release_build_data.status_display in ['ABORTED', 'CANCELLED', 'CANCELED'] %}status-cancelled{% elif release_build_data.status_display == 'Not available' %}bg-slate-100 text-slate-600{% else %}status-failed{% endif %}">{{ release_build_data.status_display }}</span></div>
+                    <div class="detail-card md:col-span-2"><p class="fact-label">Affected Modules</p><p class="fact-value mt-2">{{ release_build_data.affected_modules_display }}</p></div>
+                    <div class="detail-card md:col-span-2"><p class="fact-label">Release Durations</p><p class="text-sm font-semibold text-slate-700 mt-2">Build {{ release_build_data.build_duration_display }} | Test {{ release_build_data.test_duration_display }} | Deploy {{ release_build_data.deploy_duration_display }} | Total {{ release_build_data.total_duration_display }}</p></div>
+                </div>
+                {% else %}
+                <p class="mt-5 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-semibold text-slate-600">Release data unavailable for this run. Monitor measurements and intelligence remain available.</p>
+                {% endif %}
+            </section>
+            <section class="panel p-6">
                 <div class="section-title"><span class="section-icon"><i data-lucide="shield-check" class="w-5 h-5"></i></span><div><h2 class="text-lg font-extrabold text-slate-900">Pipeline Sustainability Health</h2><p class="text-sm text-slate-500">Calculated across the complete pipeline run.</p></div></div>
                 <div class="mt-5 rounded-2xl border border-emerald-200 bg-gradient-to-br from-emerald-50 to-white p-5">
                     <div class="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-5">
@@ -3028,11 +3171,16 @@ def enrich_run_summary_for_pages(df, run_summary):
     return rows
 
 
-def build_run_context(df, run_summary, data_source, selected_run):
+def build_run_context(df, run_summary, data_source, selected_run, include_release_data=True):
     current_run_df = df[df["run_id"] == selected_run].copy()
     historical_df = df[df["run_id"] != selected_run].copy()
     pipeline_name = str(current_run_df["pipeline_name"].dropna().astype(str).iloc[0]) if "pipeline_name" in current_run_df.columns and not current_run_df["pipeline_name"].dropna().empty else "Unknown pipeline"
     build_number = extract_build_number_from_run_id(selected_run)
+    release_build_data = (
+        format_release_build_data(find_release_build_for_run(selected_run, load_release_builds()))
+        if include_release_data
+        else None
+    )
     deploy_component_data = format_deploy_component_data(load_deploy_data(pipeline_name, build_number))
     analytics_current_run_df = workload_analytics_dataframe(current_run_df)
     analytics_historical_df = workload_analytics_dataframe(historical_df)
@@ -3154,6 +3302,7 @@ def build_run_context(df, run_summary, data_source, selected_run):
         "total_carbon_display": format_gco2_from_kg(round(float(current_run_df["total_carbon_kg"].sum()), 8)),
         "health_score": health_score,
         "health_explanation_display": neutralize_health_explanation(health_score.get("explanation")),
+        "release_build_data": release_build_data,
         "anomaly_summary": anomaly_summary,
         "lifecycle_sections": lifecycle_sections,
     }
@@ -3221,7 +3370,7 @@ def stage_detail(run_id, stage_key):
         return _empty_data_response()
     if run_id not in set(run_summary["run_id"].astype(str).tolist()):
         abort(404)
-    context = build_run_context(df, run_summary, data_source, run_id)
+    context = build_run_context(df, run_summary, data_source, run_id, include_release_data=False)
     stage_detail_context = next((item for item in context["lifecycle_sections"] if item.get("key") == stage_key.lower()), None)
     if stage_detail_context is None:
         abort(404)
