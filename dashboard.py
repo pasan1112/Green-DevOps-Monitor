@@ -616,12 +616,25 @@ def format_release_build_data(build):
     if not build:
         return None
     status = format_optional_text(build.get("status"))
+    pipeline_type = format_optional_text(build.get("pipeline_type"))
+    scheduling_action = format_optional_text(build.get("scheduling_action"))
+    scheduling_engine = format_optional_text(build.get("scheduling_engine"))
+    decision_context = " ".join([pipeline_type, scheduling_action, scheduling_engine]).lower()
+    is_full_build = any(token in decision_context for token in ("force_full_build", "full build", "full_build", "force full"))
+    optimizer_bypassed = is_full_build or "bypass" in decision_context
     return {
         "status_display": status.upper() if status != "Not available" else status,
-        "pipeline_type_display": format_optional_text(build.get("pipeline_type")).replace("_", " ").title(),
+        "pipeline_type_display": pipeline_type.replace("_", " ").title(),
         "green_probability_display": format_release_probability(build.get("green_probability")),
-        "scheduling_action_display": format_optional_text(build.get("scheduling_action")).replace("_", " ").title(),
-        "scheduling_engine_display": format_optional_text(build.get("scheduling_engine")),
+        "scheduling_action_display": scheduling_action.replace("_", " ").title(),
+        "scheduling_engine_display": scheduling_engine,
+        "execution_mode_display": "Full Build" if is_full_build else ("Selective / Optimized" if pipeline_type != "Not available" or scheduling_action != "Not available" else "Not available"),
+        "optimization_status_display": "Bypassed" if optimizer_bypassed else ("Applied" if scheduling_action != "Not available" or scheduling_engine != "Not available" else "Not available"),
+        "context_note": (
+            "Full build means Release optimization or scheduling was bypassed; Monitor lifecycle status still reflects actual execution."
+            if optimizer_bypassed
+            else "Release API provides decision context; Monitor remains the source for measured execution results."
+        ),
         "carbon_intensity_display": format_release_intensity(build.get("carbon_intensity")),
         "affected_modules_display": format_release_list(build.get("affected_modules")),
         "tests_executed_display": format_release_count(build.get("tests_executed")),
@@ -2816,6 +2829,7 @@ APP_HTML = """
                 </div>
             </div>
             <section class="panel p-6">
+                <div class="section-title mb-5"><span class="section-icon"><i data-lucide="layout-dashboard" class="w-5 h-5"></i></span><div><h2 class="text-lg font-extrabold text-slate-900">Pipeline Summary</h2><p class="text-sm text-slate-500">Monitor measurements for the selected pipeline run.</p></div></div>
                 <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-5">
                     <div><p class="text-xs font-bold uppercase text-slate-500">Start Time</p><p class="text-sm font-semibold text-slate-800 mt-1">{{ selected_run_start }}</p></div>
                     <div><p class="text-xs font-bold uppercase text-slate-500">End Time</p><p class="text-sm font-semibold text-slate-800 mt-1">{{ selected_run_end }}</p></div>
@@ -2826,25 +2840,6 @@ APP_HTML = """
                     <div><p class="text-xs font-bold uppercase text-slate-500">Warnings</p><p class="text-xl font-black text-amber-600 mt-1">{{ anomaly_summary.warning_count }}</p></div>
                     <div><p class="text-xs font-bold uppercase text-slate-500">Critical</p><p class="text-xl font-black text-rose-600 mt-1">{{ anomaly_summary.critical_count }}</p></div>
                 </div>
-            </section>
-            <section class="panel p-6">
-                <div class="section-title"><span class="section-icon"><i data-lucide="package-check" class="w-5 h-5"></i></span><div><h2 class="text-lg font-extrabold text-slate-900">Release Intelligence</h2><p class="text-sm text-slate-500">Release decision context matched to this Monitor run.</p></div></div>
-                {% if release_build_data %}
-                <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4 mt-5">
-                    <div class="detail-card"><p class="fact-label">Green Probability</p><p class="text-2xl font-black text-emerald-700 mt-2">{{ release_build_data.green_probability_display }}</p></div>
-                    <div class="detail-card"><p class="fact-label">Scheduling Action</p><p class="fact-value mt-2">{{ release_build_data.scheduling_action_display }}</p></div>
-                    <div class="detail-card"><p class="fact-label">Scheduling Engine</p><p class="fact-value mt-2">{{ release_build_data.scheduling_engine_display }}</p></div>
-                    <div class="detail-card"><p class="fact-label">Pipeline Type</p><p class="fact-value mt-2">{{ release_build_data.pipeline_type_display }}</p></div>
-                    <div class="detail-card"><p class="fact-label">Release Carbon Intensity</p><p class="fact-value mt-2">{{ release_build_data.carbon_intensity_display }}</p></div>
-                    <div class="detail-card"><p class="fact-label">Tests Executed</p><p class="fact-value mt-2">{{ release_build_data.tests_executed_display }}</p></div>
-                    <div class="detail-card"><p class="fact-label">Tests Skipped</p><p class="fact-value mt-2">{{ release_build_data.tests_skipped_display }}</p></div>
-                    <div class="detail-card"><p class="fact-label">Release Status</p><span class="mt-2 inline-flex rounded-full px-3 py-1 text-xs font-black uppercase {% if release_build_data.status_display == 'SUCCESS' %}status-success{% elif release_build_data.status_display in ['ABORTED', 'CANCELLED', 'CANCELED'] %}status-cancelled{% elif release_build_data.status_display == 'Not available' %}bg-slate-100 text-slate-600{% else %}status-failed{% endif %}">{{ release_build_data.status_display }}</span></div>
-                    <div class="detail-card md:col-span-2"><p class="fact-label">Affected Modules</p><p class="fact-value mt-2">{{ release_build_data.affected_modules_display }}</p></div>
-                    <div class="detail-card md:col-span-2"><p class="fact-label">Release Durations</p><p class="text-sm font-semibold text-slate-700 mt-2">Build {{ release_build_data.build_duration_display }} | Test {{ release_build_data.test_duration_display }} | Deploy {{ release_build_data.deploy_duration_display }} | Total {{ release_build_data.total_duration_display }}</p></div>
-                </div>
-                {% else %}
-                <p class="mt-5 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-semibold text-slate-600">Release data unavailable for this run. Monitor measurements and intelligence remain available.</p>
-                {% endif %}
             </section>
             <section class="panel p-6">
                 <div class="section-title"><span class="section-icon"><i data-lucide="shield-check" class="w-5 h-5"></i></span><div><h2 class="text-lg font-extrabold text-slate-900">Pipeline Sustainability Health</h2><p class="text-sm text-slate-500">Calculated across the complete pipeline run.</p></div></div>
@@ -2869,32 +2864,32 @@ APP_HTML = """
                 <div><p class="text-xs font-bold uppercase tracking-[0.2em] text-emerald-600">Select a Stage</p><h2 class="text-2xl font-extrabold text-slate-900 mt-1">Release | Deploy | Operate</h2></div>
                 <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
                     {% for stage in lifecycle_sections %}
+                    {% if stage.key == 'operate' %}
+                    <div class="panel p-5 border-dashed border-slate-300 bg-slate-50/80">
+                        <div class="flex items-center justify-between">
+                            <div class="flex items-center gap-2"><i data-lucide="{{ stage.icon }}" class="w-5 h-5 text-slate-400"></i><h3 class="font-extrabold text-slate-500">{{ stage.label }}</h3></div>
+                            <span class="rounded-full bg-slate-200 px-3 py-1 text-[11px] font-black uppercase text-slate-600">Coming Soon</span>
+                        </div>
+                        <div class="grid grid-cols-2 gap-3 mt-4 text-sm">
+                            <div><p class="text-xs uppercase font-bold text-slate-500">Energy</p><p class="font-bold text-slate-500">Not available</p></div>
+                            <div><p class="text-xs uppercase font-bold text-slate-500">Carbon</p><p class="font-bold text-slate-500">Not available</p></div>
+                        </div>
+                        <p class="text-xs text-slate-500 mt-4">Operate component integration is not implemented for PP2.</p>
+                    </div>
+                    {% else %}
                     <div class="panel p-5">
                         <div class="flex items-center justify-between">
                             <div class="flex items-center gap-2"><i data-lucide="{{ stage.icon }}" class="w-5 h-5 text-emerald-600"></i><h3 class="font-extrabold text-slate-900">{{ stage.label }}</h3></div>
                             <span class="text-xs font-semibold {% if stage.skipped %}text-amber-700{% else %}text-slate-500{% endif %}">{{ stage.summary_status }}</span>
                         </div>
-                        <p class="text-xs text-slate-500 mt-3">{{ stage.summary_text }}</p>
                         <div class="grid grid-cols-2 gap-3 mt-4 text-sm">
                             <div><p class="text-xs uppercase font-bold text-slate-500">Energy</p><p class="font-bold text-slate-800">{{ stage.energy_display }}</p></div>
                             <div><p class="text-xs uppercase font-bold text-slate-500">Carbon</p><p class="font-bold text-slate-800">{{ stage.carbon_display }}</p></div>
                         </div>
-                        {% if stage.key == 'deploy' and stage.deploy_data and not stage.skipped %}
-                        <div class="mt-4 border-t border-slate-200 pt-4">
-                            <p class="text-xs uppercase font-bold text-slate-500">Deploy Component</p>
-                            <div class="grid grid-cols-2 gap-3 mt-3 text-sm">
-                                <div><p class="text-xs uppercase font-bold text-slate-500">Status</p><p class="font-bold text-slate-800">{{ stage.deploy_data.status_display }}</p></div>
-                                <div><p class="text-xs uppercase font-bold text-slate-500">Strategy</p><p class="font-bold text-slate-800">{{ stage.deploy_data.strategy_display }}</p></div>
-                                <div><p class="text-xs uppercase font-bold text-slate-500">Carbon Profile</p><p class="font-bold text-slate-800">{{ stage.deploy_data.carbon_profile_display }}</p></div>
-                                <div><p class="text-xs uppercase font-bold text-slate-500">Duration</p><p class="font-bold text-slate-800">{{ stage.deploy_data.duration_display }}</p></div>
-                                <div class="col-span-2"><p class="text-xs uppercase font-bold text-slate-500">Image</p><p class="font-bold text-slate-800 break-all">{{ stage.deploy_data.image_display }}</p></div>
-                            </div>
-                        </div>
-                        {% elif stage.key == 'deploy' and stage.deploy_data_missing %}
-                        <p class="text-xs text-slate-500 mt-4">Deploy component data unavailable for this run.</p>
-                        {% endif %}
+                        {% if stage.skipped and stage.skip_reason_display %}<p class="text-xs text-amber-700 font-semibold mt-4">Reason: {{ stage.skip_reason_display }}</p>{% endif %}
                         <a href="/run/{{ selected_run|urlencode }}/{{ stage.key }}" class="mt-5 inline-flex items-center gap-2 rounded-lg bg-emerald-600 px-3 py-2 text-xs font-bold text-white hover:bg-emerald-700">View Stage <i data-lucide="arrow-right" class="w-3 h-3"></i></a>
                     </div>
+                    {% endif %}
                     {% endfor %}
                 </div>
             </section>
@@ -2943,10 +2938,32 @@ APP_HTML = """
                 {% else %}<p class="text-sm text-slate-500 mt-3">Awaiting integrated Monitor data.</p>{% endif %}
             </section>
             <section class="panel p-6">
-                <div class="section-title"><span class="section-icon"><i data-lucide="rocket" class="w-5 h-5"></i></span><div><h2 class="text-lg font-extrabold text-slate-900">Component-specific information</h2><p class="text-sm text-slate-500">Deployment metadata and execution context.</p></div></div>
-                {% if stage_detail.key == 'deploy' and stage_detail.skipped %}
+                {% if stage_detail.key == 'release' %}
+                <div class="section-title"><span class="section-icon"><i data-lucide="package-check" class="w-5 h-5"></i></span><div><h2 class="text-lg font-extrabold text-slate-900">Release execution information</h2><p class="text-sm text-slate-500">Release API decision context for this lifecycle stage.</p></div></div>
+                {% if stage_detail.release_data %}
+                <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4 mt-5">
+                    <div class="detail-card"><p class="fact-label">Release Status</p><span class="mt-2 inline-flex rounded-full px-3 py-1 text-xs font-black uppercase {% if stage_detail.release_data.status_display == 'SUCCESS' %}status-success{% elif stage_detail.release_data.status_display in ['ABORTED', 'CANCELLED', 'CANCELED'] %}status-cancelled{% elif stage_detail.release_data.status_display == 'Not available' %}bg-slate-100 text-slate-600{% else %}status-failed{% endif %}">{{ stage_detail.release_data.status_display }}</span></div>
+                    <div class="detail-card"><p class="fact-label">Execution Mode</p><p class="fact-value mt-2">{{ stage_detail.release_data.execution_mode_display }}</p></div>
+                    <div class="detail-card"><p class="fact-label">Optimization Status</p><p class="fact-value mt-2">{{ stage_detail.release_data.optimization_status_display }}</p></div>
+                    <div class="detail-card"><p class="fact-label">Pipeline Type</p><p class="fact-value mt-2">{{ stage_detail.release_data.pipeline_type_display }}</p></div>
+                    <div class="detail-card"><p class="fact-label">Green Probability</p><p class="text-2xl font-black text-emerald-700 mt-2">{{ stage_detail.release_data.green_probability_display }}</p></div>
+                    <div class="detail-card"><p class="fact-label">Scheduling Action</p><p class="fact-value mt-2">{{ stage_detail.release_data.scheduling_action_display }}</p></div>
+                    <div class="detail-card"><p class="fact-label">Scheduling Engine</p><p class="fact-value mt-2">{{ stage_detail.release_data.scheduling_engine_display }}</p></div>
+                    <div class="detail-card"><p class="fact-label">Release Carbon Intensity</p><p class="fact-value mt-2">{{ stage_detail.release_data.carbon_intensity_display }}</p></div>
+                    <div class="detail-card"><p class="fact-label">Tests Executed</p><p class="fact-value mt-2">{{ stage_detail.release_data.tests_executed_display }}</p></div>
+                    <div class="detail-card"><p class="fact-label">Tests Skipped</p><p class="fact-value mt-2">{{ stage_detail.release_data.tests_skipped_display }}</p></div>
+                    <div class="detail-card md:col-span-2"><p class="fact-label">Affected Modules</p><p class="fact-value mt-2">{{ stage_detail.release_data.affected_modules_display }}</p></div>
+                    <div class="detail-card md:col-span-2"><p class="fact-label">Release Durations</p><p class="text-sm font-semibold text-slate-700 mt-2">Build {{ stage_detail.release_data.build_duration_display }} | Test {{ stage_detail.release_data.test_duration_display }} | Deploy {{ stage_detail.release_data.deploy_duration_display }} | Total {{ stage_detail.release_data.total_duration_display }}</p></div>
+                    <div class="detail-card md:col-span-2"><p class="fact-label">Decision Context</p><p class="text-sm font-semibold text-slate-700 mt-2">{{ stage_detail.release_data.context_note }}</p></div>
+                </div>
+                {% else %}
+                <p class="mt-5 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-semibold text-slate-600">Release data unavailable for this run. Monitor measurements and Release anomaly intelligence remain available.</p>
+                {% endif %}
+                {% elif stage_detail.key == 'deploy' %}
+                <div class="section-title"><span class="section-icon"><i data-lucide="rocket" class="w-5 h-5"></i></span><div><h2 class="text-lg font-extrabold text-slate-900">Deploy execution information</h2><p class="text-sm text-slate-500">Deployment metadata and execution context.</p></div></div>
+                {% if stage_detail.skipped %}
                 <p class="mt-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-semibold text-amber-800">Deploy component data is not applied because this Monitor Deploy lifecycle was skipped.</p>
-                {% elif stage_detail.key == 'deploy' and stage_detail.deploy_data %}
+                {% elif stage_detail.deploy_data %}
                 <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 mt-5">
                     <div class="detail-card">
                         <div class="flex items-center justify-between gap-3">
@@ -2983,9 +3000,11 @@ APP_HTML = """
                     </table>
                 </div>
                 {% endif %}
-                {% elif stage_detail.key == 'deploy' %}
-                <p class="text-sm text-slate-500 mt-2">Deploy component data unavailable for this run.</p>
                 {% else %}
+                <p class="text-sm text-slate-500 mt-2">Deploy component data unavailable for this run.</p>
+                {% endif %}
+                {% else %}
+                <div class="section-title"><span class="section-icon"><i data-lucide="activity" class="w-5 h-5"></i></span><div><h2 class="text-lg font-extrabold text-slate-900">Component-specific information</h2><p class="text-sm text-slate-500">Lifecycle component context.</p></div></div>
                 <p class="text-sm text-slate-500 mt-2">Component-specific results will be displayed here after integration.</p>
                 {% endif %}
             </section>
@@ -3171,7 +3190,7 @@ def enrich_run_summary_for_pages(df, run_summary):
     return rows
 
 
-def build_run_context(df, run_summary, data_source, selected_run, include_release_data=True):
+def build_run_context(df, run_summary, data_source, selected_run, include_release_data=False):
     current_run_df = df[df["run_id"] == selected_run].copy()
     historical_df = df[df["run_id"] != selected_run].copy()
     pipeline_name = str(current_run_df["pipeline_name"].dropna().astype(str).iloc[0]) if "pipeline_name" in current_run_df.columns and not current_run_df["pipeline_name"].dropna().empty else "Unknown pipeline"
@@ -3370,10 +3389,15 @@ def stage_detail(run_id, stage_key):
         return _empty_data_response()
     if run_id not in set(run_summary["run_id"].astype(str).tolist()):
         abort(404)
-    context = build_run_context(df, run_summary, data_source, run_id, include_release_data=False)
-    stage_detail_context = next((item for item in context["lifecycle_sections"] if item.get("key") == stage_key.lower()), None)
+    normalized_stage_key = stage_key.lower()
+    if normalized_stage_key == "operate":
+        abort(404)
+    context = build_run_context(df, run_summary, data_source, run_id, include_release_data=normalized_stage_key == "release")
+    stage_detail_context = next((item for item in context["lifecycle_sections"] if item.get("key") == normalized_stage_key), None)
     if stage_detail_context is None:
         abort(404)
+    if normalized_stage_key == "release":
+        stage_detail_context = {**stage_detail_context, "release_data": context.get("release_build_data")}
     return render_template_string(APP_HTML, page="stage", stage_detail=stage_detail_context, **context)
 
 
