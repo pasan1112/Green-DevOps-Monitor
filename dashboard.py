@@ -2724,22 +2724,65 @@ APP_HTML = """
         .timeline-line { width: 2px; min-height: 2rem; background: linear-gradient(180deg, #10b981, #38bdf8); margin-left: .42rem; }
         .status-pulse { width: 8px; height: 8px; border-radius: 50%; display: inline-block; animation: pulse 2s infinite; }
         @keyframes pulse { 0% { box-shadow: 0 0 0 0 rgba(34, 197, 94, .55); } 70% { box-shadow: 0 0 0 10px rgba(34, 197, 94, 0); } 100% { box-shadow: 0 0 0 0 rgba(34, 197, 94, 0); } }
+        body.home-body { background: #f6f7f9; color: #111827; }
+        .home-shell { max-width: 1280px; margin: 0 auto; }
+        .home-header { border: 1px solid rgba(209, 213, 219, .72); background: rgba(255,255,255,.86); border-radius: 1.25rem; padding: .85rem 1rem; box-shadow: 0 12px 36px rgba(15, 23, 42, .055); backdrop-filter: blur(18px); }
+        .home-brand-mark { width: 2.25rem; height: 2.25rem; border-radius: .85rem; display: inline-flex; align-items: center; justify-content: center; background: #ecfdf5; color: #047857; border: 1px solid rgba(16,185,129,.16); }
+        .home-nav-link { display: inline-flex; align-items: center; gap: .4rem; border-radius: 999px; padding: .5rem .75rem; color: #64748b; font-size: .875rem; font-weight: 700; transition: background .16s ease, color .16s ease; }
+        .home-nav-link:hover { background: #f1f5f9; color: #0f172a; }
+        .home-nav-link.active { background: #111827; color: #ffffff; }
+        .home-source-chip { display: inline-flex; align-items: center; gap: .5rem; border-radius: 999px; border: 1px solid rgba(209,213,219,.82); background: #ffffff; padding: .5rem .8rem; color: #475569; font-size: .8125rem; font-weight: 700; }
+        .home-hero { padding: 3rem 0 1.25rem; }
+        .home-eyebrow { font-size: .72rem; line-height: 1rem; font-weight: 800; letter-spacing: .18em; text-transform: uppercase; color: #059669; }
+        .home-title { margin-top: .85rem; max-width: 820px; font-size: clamp(2.25rem, 5vw, 3.8rem); line-height: .98; font-weight: 900; letter-spacing: 0; color: #111827; }
+        .home-subtitle { margin-top: 1rem; max-width: 720px; color: #64748b; font-size: 1rem; line-height: 1.75; font-weight: 500; }
+        .home-kpi-grid { display: grid; grid-template-columns: repeat(1, minmax(0, 1fr)); gap: 1rem; }
+        @media (min-width: 768px) { .home-kpi-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+        @media (min-width: 1180px) { .home-kpi-grid { grid-template-columns: 1.15fr 1.15fr 1fr .85fr; } }
+        .home-widget { position: relative; overflow: hidden; border-radius: 1.25rem; border: 1px solid rgba(209,213,219,.72); background: #ffffff; padding: 1.25rem; min-height: 168px; box-shadow: 0 14px 40px rgba(15, 23, 42, .06); transition: transform .18s ease, box-shadow .18s ease, border-color .18s ease; }
+        .home-widget:hover { transform: translateY(-2px); border-color: rgba(148,163,184,.7); box-shadow: 0 20px 52px rgba(15, 23, 42, .09); }
+        .home-widget-icon { width: 2.35rem; height: 2.35rem; display: inline-flex; align-items: center; justify-content: center; border-radius: .95rem; background: #f8fafc; color: #475569; border: 1px solid rgba(226,232,240,.9); }
+        .home-widget-value { margin-top: 1.75rem; font-size: clamp(1.8rem, 3vw, 2.65rem); line-height: 1; font-weight: 900; letter-spacing: 0; color: #111827; overflow-wrap: anywhere; }
+        .home-widget-label { font-size: .92rem; color: #475569; font-weight: 700; }
+        .home-widget-note { margin-top: .6rem; font-size: .78rem; line-height: 1.45; color: #94a3b8; font-weight: 600; }
+        .home-panel { border: 1px solid rgba(209,213,219,.72); background: rgba(255,255,255,.92); border-radius: 1.5rem; box-shadow: 0 16px 48px rgba(15, 23, 42, .07); }
+        .home-section-heading { display: flex; align-items: flex-end; justify-content: space-between; gap: 1rem; padding: 1.25rem 1.35rem 0; }
+        .home-section-title { color: #111827; font-size: 1.15rem; font-weight: 850; letter-spacing: 0; }
+        .home-section-subtitle { margin-top: .25rem; color: #64748b; font-size: .875rem; line-height: 1.5; }
+        .home-chart-card { border-radius: 1.15rem; border: 1px solid rgba(226,232,240,.9); background: linear-gradient(180deg, #ffffff 0%, #fbfdff 100%); padding: 1rem; }
+        .home-chart-title { display: flex; align-items: center; justify-content: space-between; gap: .75rem; margin-bottom: .75rem; color: #334155; font-size: .82rem; font-weight: 800; }
+        .home-widget-icon.energy { background: #ecfdf5; color: #047857; }
+        .home-widget-icon.carbon { background: #f0f9ff; color: #0369a1; }
+        .home-widget-icon.health { background: #fff7ed; color: #c2410c; }
+        .home-run-table { width: 100%; min-width: 640px; border-collapse: separate; border-spacing: 0; }
+        .home-run-table th { padding: .75rem 1rem; color: #94a3b8; font-size: .68rem; font-weight: 800; text-align: left; text-transform: uppercase; letter-spacing: .08em; border-bottom: 1px solid #eef2f7; }
+        .home-run-table td { padding: 1rem; border-bottom: 1px solid #f1f5f9; color: #334155; font-size: .875rem; vertical-align: middle; }
+        .home-run-table tbody tr { cursor: pointer; transition: background .16s ease, transform .16s ease; }
+        .home-run-table tbody tr:hover { background: #f8fafc; }
+        .home-run-status { display: inline-flex; align-items: center; border-radius: 999px; padding: .25rem .55rem; font-size: .68rem; font-weight: 850; text-transform: uppercase; }
+        .home-health-pill { display: inline-flex; align-items: baseline; gap: .15rem; border-radius: 999px; background: #f8fafc; border: 1px solid #e2e8f0; padding: .35rem .6rem; font-weight: 850; color: #111827; }
+        .home-view-all { display: inline-flex; align-items: center; gap: .35rem; color: #047857; font-size: .85rem; font-weight: 800; transition: color .16s ease; }
+        .home-view-all:hover { color: #065f46; }
+        @media (max-width: 767px) {
+            .home-hero { padding-top: 2rem; }
+            .home-section-heading { align-items: flex-start; flex-direction: column; }
+        }
     </style>
 </head>
-<body class="p-4 md:p-8">
-    <div class="max-w-[1500px] mx-auto space-y-6">
-        <header class="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
+<body class="p-4 md:p-8 {% if page == 'home' %}home-body{% endif %}">
+    <div class="{% if page == 'home' %}home-shell{% else %}max-w-[1500px] mx-auto{% endif %} space-y-6">
+        <header class="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4 {% if page == 'home' %}home-header{% endif %}">
             <a href="/" class="flex items-center gap-3">
-                <span class="p-2 bg-emerald-100 rounded-lg"><i data-lucide="leaf" class="w-8 h-8 text-emerald-600"></i></span>
+                <span class="{% if page == 'home' %}home-brand-mark{% else %}p-2 bg-emerald-100 rounded-lg{% endif %}"><i data-lucide="leaf" class="{% if page == 'home' %}w-5 h-5{% else %}w-8 h-8 text-emerald-600{% endif %}"></i></span>
                 <span>
-                    <span class="block text-3xl font-extrabold tracking-tight text-slate-900">Green DevOps Monitor</span>
-                    <span class="block text-sm text-slate-600 font-medium">Centralized sustainability intelligence for Release, Deploy, and Operate</span>
+                    <span class="block {% if page == 'home' %}text-base font-black{% else %}text-3xl font-extrabold tracking-tight{% endif %} text-slate-900">Green DevOps Monitor</span>
+                    <span class="block {% if page == 'home' %}text-xs{% else %}text-sm{% endif %} text-slate-600 font-medium">Centralized sustainability intelligence for Release, Deploy, and Operate</span>
                 </span>
             </a>
             <div class="flex flex-wrap items-center gap-2">
-                <a href="/" class="rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50">Home</a>
-                <a href="/runs" class="rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50">Runs</a>
-                <div class="console-chip rounded-xl px-4 py-2 flex items-center gap-2">
+                <a href="/" class="{% if page == 'home' %}home-nav-link active{% else %}rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50{% endif %}"><i data-lucide="house" class="{% if page == 'home' %}w-4 h-4{% else %}hidden{% endif %}"></i>Home</a>
+                <a href="/runs" class="{% if page == 'home' %}home-nav-link{% else %}rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50{% endif %}"><i data-lucide="list" class="{% if page == 'home' %}w-4 h-4{% else %}hidden{% endif %}"></i>Runs</a>
+                <div class="{% if page == 'home' %}home-source-chip{% else %}console-chip rounded-xl px-4 py-2 flex items-center gap-2{% endif %}">
                     <span class="status-pulse bg-emerald-500"></span>
                     <span class="text-sm font-semibold text-slate-700">{{ data_source }}</span>
                 </div>
@@ -2747,41 +2790,100 @@ APP_HTML = """
         </header>
 
         {% if page == 'home' %}
-        <main class="space-y-6">
-            <section>
-                <p class="text-xs font-bold uppercase tracking-[0.2em] text-emerald-600">Home</p>
-                <h1 class="text-3xl font-extrabold text-slate-900 mt-2">System sustainability overview</h1>
-                <p class="text-sm text-slate-600 mt-1">What is happening with the Green DevOps pipeline overall?</p>
+        <main class="space-y-8">
+            <section class="home-hero">
+                <p class="home-eyebrow">System Overview</p>
+                <h1 class="home-title">Green DevOps Monitor</h1>
+                <p class="home-subtitle">A calm operating view of pipeline sustainability, energy use, carbon impact, and recent delivery activity across monitored runs.</p>
             </section>
-            <section class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
-                <div class="panel p-5"><p class="text-xs font-bold uppercase text-slate-500">Total Energy</p><p class="text-3xl font-black text-emerald-600 mt-2">{{ system_total_energy_display }}</p></div>
-                <div class="panel p-5"><p class="text-xs font-bold uppercase text-slate-500">Total Carbon</p><p class="text-3xl font-black text-sky-600 mt-2">{{ system_total_carbon_display }}</p></div>
-                <div class="panel p-5"><p class="text-xs font-bold uppercase text-slate-500">Average Sustainability Health</p><p class="text-3xl font-black text-slate-900 mt-2">{{ average_health_score }}<span class="text-sm text-slate-500">/100</span></p></div>
-                <div class="panel p-5"><p class="text-xs font-bold uppercase text-slate-500">Total Pipeline Runs</p><p class="text-3xl font-black text-slate-900 mt-2">{{ system_run_count }}</p></div>
+            <section class="home-kpi-grid">
+                <div class="home-widget">
+                    <div class="flex items-start justify-between gap-4">
+                        <p class="home-widget-label">Total Energy</p>
+                        <span class="home-widget-icon energy"><i data-lucide="zap" class="w-5 h-5"></i></span>
+                    </div>
+                    <p class="home-widget-value text-emerald-700">{{ system_total_energy_display }}</p>
+                    <p class="home-widget-note">Accumulated Monitor energy across all recorded pipeline runs.</p>
+                </div>
+                <div class="home-widget">
+                    <div class="flex items-start justify-between gap-4">
+                        <p class="home-widget-label">Total Carbon</p>
+                        <span class="home-widget-icon carbon"><i data-lucide="cloud" class="w-5 h-5"></i></span>
+                    </div>
+                    <p class="home-widget-value text-sky-700">{{ system_total_carbon_display }}</p>
+                    <p class="home-widget-note">Total carbon footprint reported from Monitor measurements.</p>
+                </div>
+                <div class="home-widget">
+                    <div class="flex items-start justify-between gap-4">
+                        <p class="home-widget-label">Average Health</p>
+                        <span class="home-widget-icon health"><i data-lucide="heart-pulse" class="w-5 h-5"></i></span>
+                    </div>
+                    <p class="home-widget-value">{{ average_health_score }}<span class="text-base font-bold text-slate-400">/100</span></p>
+                    <p class="home-widget-note">Average sustainability health score across completed runs.</p>
+                </div>
+                <div class="home-widget">
+                    <div class="flex items-start justify-between gap-4">
+                        <p class="home-widget-label">Pipeline Runs</p>
+                        <span class="home-widget-icon text-slate-700"><i data-lucide="workflow" class="w-5 h-5"></i></span>
+                    </div>
+                    <p class="home-widget-value">{{ system_run_count }}</p>
+                    <p class="home-widget-note">Runs currently available in the Monitor data source.</p>
+                </div>
             </section>
-            <section class="grid grid-cols-1 xl:grid-cols-3 gap-6">
-                <div class="xl:col-span-2 panel p-6">
-                    <h2 class="text-sm font-bold uppercase tracking-wider text-slate-800 mb-5">Overall Sustainability Trends</h2>
-                    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                        <div class="h-[250px]"><canvas id="runEnergyChart"></canvas></div>
-                        <div class="h-[250px]"><canvas id="runCarbonChart"></canvas></div>
+            <section class="grid grid-cols-1 xl:grid-cols-5 gap-6">
+                <div class="xl:col-span-3 home-panel">
+                    <div class="home-section-heading">
+                        <div>
+                            <h2 class="home-section-title">Overall Sustainability Trends</h2>
+                            <p class="home-section-subtitle">Energy and carbon movement across the latest monitored runs.</p>
+                        </div>
+                    </div>
+                    <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 p-5">
+                        <div class="home-chart-card">
+                            <div class="home-chart-title"><span>Energy trend</span><span class="text-emerald-700">kWh</span></div>
+                            <div class="h-[260px]"><canvas id="runEnergyChart"></canvas></div>
+                        </div>
+                        <div class="home-chart-card">
+                            <div class="home-chart-title"><span>Carbon trend</span><span class="text-sky-700">kg CO2e</span></div>
+                            <div class="h-[260px]"><canvas id="runCarbonChart"></canvas></div>
+                        </div>
                     </div>
                 </div>
-                <div class="panel p-6">
-                    <div class="flex items-center justify-between mb-4">
-                        <h2 class="text-sm font-bold uppercase tracking-wider text-slate-800">Recent Pipeline Runs</h2>
-                        <a href="/runs" class="text-xs font-bold text-emerald-700 hover:text-emerald-800">View all</a>
+                <div class="xl:col-span-2 home-panel overflow-hidden">
+                    <div class="home-section-heading">
+                        <div>
+                            <h2 class="home-section-title">Recent Pipeline Runs</h2>
+                            <p class="home-section-subtitle">Latest Monitor activity with sustainability context.</p>
+                        </div>
+                        <a href="/runs" class="home-view-all">View all runs <i data-lucide="chevron-right" class="w-4 h-4"></i></a>
                     </div>
-                    <div class="space-y-3">
-                        {% for run in recent_runs %}
-                        <a href="/run/{{ run.run_id|urlencode }}" class="block rounded-xl border border-slate-200 p-3 hover:bg-slate-50">
-                            <div class="flex items-center justify-between gap-3">
-                                <span class="text-sm font-bold text-slate-800 truncate">Run #{{ run.run_id }}</span>
-                                <span class="text-[10px] font-bold uppercase {% if run.status == 'success' %}text-emerald-700{% else %}text-rose-700{% endif %}">{{ run.status }}</span>
-                            </div>
-                            <p class="text-xs text-slate-500 mt-1">{{ run.duration_display }} | {{ run.total_energy_display }} | {{ run.total_carbon_display }} | Health {{ run.health_score }}/100</p>
-                        </a>
-                        {% endfor %}
+                    <div class="overflow-x-auto px-3 pb-3 pt-4">
+                        <table class="home-run-table">
+                            <thead>
+                                <tr>
+                                    <th>Run</th>
+                                    <th>Status</th>
+                                    <th>Duration</th>
+                                    <th>Energy</th>
+                                    <th>Carbon</th>
+                                    <th>Health</th>
+                                    <th></th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for run in recent_runs %}
+                                <tr onclick="window.location.href='/run/{{ run.run_id|urlencode }}'">
+                                    <td><span class="font-black text-slate-900">#{{ run.run_id }}</span></td>
+                                    <td><span class="home-run-status {% if run.status == 'success' %}bg-emerald-50 text-emerald-700{% else %}bg-rose-50 text-rose-700{% endif %}">{{ run.status }}</span></td>
+                                    <td>{{ run.duration_display }}</td>
+                                    <td><span class="font-mono text-emerald-700">{{ run.total_energy_display }}</span></td>
+                                    <td><span class="font-mono text-sky-700">{{ run.total_carbon_display }}</span></td>
+                                    <td><span class="home-health-pill">{{ run.health_score }}<span class="text-xs text-slate-400">/100</span></span></td>
+                                    <td class="text-right"><i data-lucide="arrow-right" class="w-4 h-4 text-slate-400"></i></td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
                     </div>
                 </div>
             </section>
@@ -3107,8 +3209,21 @@ APP_HTML = """
         {% if page == 'home' %}
         Chart.defaults.font.family = "'Plus Jakarta Sans', sans-serif";
         const runLabels = {{ run_chart_labels | safe }};
-        new Chart(document.getElementById("runEnergyChart"), { type: "line", data: { labels: runLabels, datasets: [{ label: "Energy kWh", data: {{ run_energy_values | safe }}, borderColor: "rgba(16, 185, 129, 1)", backgroundColor: "rgba(16, 185, 129, .12)", fill: true, tension: .35 }] }, options: { responsive: true, maintainAspectRatio: false } });
-        new Chart(document.getElementById("runCarbonChart"), { type: "line", data: { labels: runLabels, datasets: [{ label: "Carbon kgCO2e", data: {{ run_carbon_values | safe }}, borderColor: "rgba(14, 165, 233, 1)", backgroundColor: "rgba(14, 165, 233, .12)", fill: true, tension: .35 }] }, options: { responsive: true, maintainAspectRatio: false } });
+        const homeChartOptions = {
+            responsive: true,
+            maintainAspectRatio: false,
+            interaction: { intersect: false, mode: "index" },
+            plugins: {
+                legend: { labels: { usePointStyle: true, boxWidth: 7, color: "#64748b", font: { size: 12, weight: "700" } } },
+                tooltip: { backgroundColor: "#111827", padding: 12, cornerRadius: 12, titleFont: { weight: "800" }, bodyFont: { weight: "600" } }
+            },
+            scales: {
+                x: { grid: { display: false }, border: { display: false }, ticks: { color: "#94a3b8", maxRotation: 0, autoSkip: true } },
+                y: { grid: { color: "rgba(226, 232, 240, .72)" }, border: { display: false }, ticks: { color: "#94a3b8" } }
+            }
+        };
+        new Chart(document.getElementById("runEnergyChart"), { type: "line", data: { labels: runLabels, datasets: [{ label: "Energy kWh", data: {{ run_energy_values | safe }}, borderColor: "rgba(5, 150, 105, 1)", backgroundColor: "rgba(16, 185, 129, .08)", pointBackgroundColor: "#ffffff", pointBorderColor: "rgba(5, 150, 105, 1)", pointRadius: 3, pointHoverRadius: 5, borderWidth: 2, fill: true, tension: .38 }] }, options: homeChartOptions });
+        new Chart(document.getElementById("runCarbonChart"), { type: "line", data: { labels: runLabels, datasets: [{ label: "Carbon kgCO2e", data: {{ run_carbon_values | safe }}, borderColor: "rgba(2, 132, 199, 1)", backgroundColor: "rgba(14, 165, 233, .08)", pointBackgroundColor: "#ffffff", pointBorderColor: "rgba(2, 132, 199, 1)", pointRadius: 3, pointHoverRadius: 5, borderWidth: 2, fill: true, tension: .38 }] }, options: homeChartOptions });
         {% endif %}
     </script>
 </body>
@@ -3118,8 +3233,12 @@ APP_HTML = """
 
 def _empty_data_response():
     return """
-    <div style='background:#f8fafc; color:#0f172a; height:100vh; display:flex; align-items:center; justify-content:center; font-family:sans-serif;'>
-        <h2>No monitoring data found.</h2>
+    <div style='background:#f6f7f9; color:#111827; min-height:100vh; display:flex; align-items:center; justify-content:center; font-family:Plus Jakarta Sans, system-ui, -apple-system, BlinkMacSystemFont, sans-serif; padding:24px;'>
+        <div style='max-width:520px; width:100%; border:1px solid #e5e7eb; border-radius:24px; background:#fff; box-shadow:0 18px 54px rgba(15,23,42,.08); padding:32px; text-align:center;'>
+            <div style='width:44px; height:44px; border-radius:16px; background:#ecfdf5; color:#047857; display:inline-flex; align-items:center; justify-content:center; margin-bottom:16px;'>&bull;</div>
+            <h2 style='font-size:28px; line-height:1.1; margin:0; font-weight:800;'>No monitoring data yet</h2>
+            <p style='margin:12px 0 0; color:#64748b; line-height:1.6;'>Run a monitored pipeline to begin building your sustainability history.</p>
+        </div>
     </div>
     """
 
