@@ -2911,18 +2911,27 @@ APP_HTML = """
         .run-metric.warning .run-metric-value { color: var(--home-warning); }
         .run-metric.critical .run-metric-value { color: var(--home-critical); }
         .lifecycle-flow { position: relative; z-index: 1; }
-        .lifecycle-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: .9rem; }
-        .lifecycle-card { position: relative; border: 1px solid var(--home-border); background: linear-gradient(145deg, var(--home-surface-strong), var(--home-surface)); border-radius: 1.35rem; padding: 1rem; box-shadow: var(--home-shadow-soft); min-height: 178px; overflow: hidden; }
+        .lifecycle-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1rem; align-items: stretch; }
+        .lifecycle-card { position: relative; display: flex; flex-direction: column; border: 1px solid var(--home-border); background: linear-gradient(145deg, var(--home-surface-strong), var(--home-surface)); border-radius: 1.35rem; padding: 1.15rem; box-shadow: var(--home-shadow-soft); min-height: 216px; overflow: hidden; }
         .lifecycle-card::after { content: ""; position: absolute; left: 1rem; right: 1rem; bottom: .85rem; height: 3px; border-radius: 999px; background: linear-gradient(90deg, rgba(var(--home-accent-energy-rgb), .78), transparent); }
         .lifecycle-card.deploy::after { background: linear-gradient(90deg, rgba(var(--home-accent-carbon-rgb), .82), transparent); }
         .lifecycle-card.disabled { border-style: dashed; background: var(--home-surface-muted); opacity: .82; }
         .lifecycle-card.disabled::after { background: linear-gradient(90deg, rgba(148,163,184,.55), transparent); }
-        .lifecycle-top { display: flex; align-items: center; justify-content: space-between; gap: .8rem; }
-        .lifecycle-name { color: var(--home-text); font-size: 1.05rem; font-weight: 900; }
-        .lifecycle-status { color: var(--home-text-secondary); font-size: .72rem; font-weight: 900; text-transform: uppercase; }
+        .lifecycle-top { display: flex; align-items: center; justify-content: space-between; gap: .8rem; padding-bottom: .95rem; border-bottom: 1px solid var(--home-border); }
+        .lifecycle-stage-title { display: flex; align-items: center; gap: .7rem; min-width: 0; }
+        .lifecycle-stage-icon { width: 2.35rem; height: 2.35rem; display: inline-flex; align-items: center; justify-content: center; flex: 0 0 auto; border-radius: .95rem; border: 1px solid rgba(var(--home-accent-energy-rgb), .25); background: rgba(var(--home-accent-energy-rgb), .14); color: var(--home-accent-energy); box-shadow: 0 0 24px rgba(var(--home-accent-energy-rgb), .14); }
+        .lifecycle-card.deploy .lifecycle-stage-icon { border-color: rgba(var(--home-accent-carbon-rgb), .25); background: rgba(var(--home-accent-carbon-rgb), .13); color: var(--home-accent-carbon); box-shadow: 0 0 24px rgba(var(--home-accent-carbon-rgb), .12); }
+        .lifecycle-name { color: var(--home-text); font-size: 1.28rem; line-height: 1.15; font-weight: 900; }
+        .lifecycle-status { flex: 0 0 auto; color: var(--home-text-secondary); font-size: .78rem; font-weight: 900; text-transform: uppercase; }
         .lifecycle-card.disabled .lifecycle-name, .lifecycle-card.disabled .lifecycle-status { color: var(--home-text-muted); }
-        .lifecycle-metrics { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .75rem; margin-top: 1rem; }
-        .lifecycle-link { margin-top: .95rem; display: inline-flex; align-items: center; gap: .4rem; color: var(--home-accent-energy); font-size: .82rem; font-weight: 900; transition: color .16s ease; }
+        .lifecycle-metrics { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .9rem; margin-top: 1.1rem; padding-bottom: 1rem; border-bottom: 1px solid var(--home-border); }
+        .lifecycle-metric-label { display: inline-flex; align-items: center; gap: .42rem; color: var(--home-text-muted); font-size: .74rem; font-weight: 850; text-transform: uppercase; letter-spacing: .08em; }
+        .lifecycle-metric-label.energy i { color: var(--home-accent-energy); }
+        .lifecycle-metric-label.carbon i { color: var(--home-accent-carbon); }
+        .lifecycle-metric-value { margin-top: .55rem; color: var(--home-text); font-size: clamp(1.25rem, 2vw, 1.75rem); line-height: 1.12; font-weight: 900; text-align: left; overflow-wrap: anywhere; }
+        .lifecycle-metric-value.energy { color: var(--home-accent-energy); }
+        .lifecycle-metric-value.carbon { color: var(--home-accent-carbon); }
+        .lifecycle-link { margin-top: auto; padding-top: .95rem; display: inline-flex; align-items: center; gap: .45rem; color: var(--home-accent-energy); font-size: .94rem; font-weight: 900; transition: color .16s ease; }
         .lifecycle-link:hover { color: var(--home-accent-carbon); }
         .release-page { position: relative; z-index: 1; }
         .release-hero { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(280px, .85fr); gap: 1rem; align-items: stretch; padding-top: 1rem; }
@@ -2940,7 +2949,7 @@ APP_HTML = """
         .release-fact { display: flex; align-items: center; justify-content: space-between; gap: .85rem; border-bottom: 1px solid var(--home-border); padding-bottom: .68rem; }
         .release-fact:last-child { border-bottom: 0; padding-bottom: 0; }
         .release-fact-value { color: var(--home-text); font-size: .95rem; font-weight: 900; text-align: right; overflow-wrap: anywhere; }
-        .release-measure-grid { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: .75rem; }
+        .release-measure-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: .75rem; }
         .release-measure { border: 1px solid var(--home-border); background: linear-gradient(145deg, var(--home-surface-strong), var(--home-surface)); border-radius: 1.1rem; padding: .85rem; min-height: 110px; box-shadow: var(--home-shadow-soft); }
         .release-measure-top { display: flex; align-items: center; justify-content: space-between; gap: .5rem; }
         .release-measure-icon { width: 2.1rem; height: 2.1rem; display: inline-flex; align-items: center; justify-content: center; border-radius: .78rem; border: 1px solid var(--home-border); background: var(--home-surface-muted); color: var(--home-text-secondary); }
@@ -2948,12 +2957,12 @@ APP_HTML = """
         .release-measure.energy .release-measure-value { color: var(--home-accent-energy); }
         .release-measure.carbon .release-measure-value { color: var(--home-accent-carbon); }
         .release-measure.cpu .release-measure-value { color: var(--home-accent-carbon); }
-        .release-measure.overhead .release-measure-value { color: var(--home-warning); }
         .release-two-col { display: grid; grid-template-columns: minmax(0, 1fr) minmax(320px, .82fr); gap: .9rem; align-items: stretch; }
         .release-decision-primary { display: grid; grid-template-columns: minmax(140px, .55fr) minmax(0, 1fr); gap: .9rem; align-items: stretch; }
         .release-probability { min-height: 170px; display: grid; place-items: center; border: 1px solid rgba(var(--home-accent-energy-rgb), .25); background: radial-gradient(circle at 50% 38%, rgba(var(--home-accent-energy-rgb), .18), transparent 60%), var(--home-surface-muted); border-radius: 1.2rem; text-align: center; }
         .release-probability-value { color: var(--home-accent-energy); font-size: clamp(2.2rem, 4vw, 3.35rem); line-height: 1; font-weight: 900; }
         .release-decision-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .65rem; }
+        .release-decision-wide { grid-column: 1 / -1; }
         .release-mini { border: 1px solid var(--home-border); background: var(--home-surface-muted); border-radius: 1rem; padding: .78rem; min-height: 86px; }
         .release-mini-value { margin-top: .45rem; color: var(--home-text); font-size: .98rem; line-height: 1.25; font-weight: 900; overflow-wrap: anywhere; }
         .release-work-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: .65rem; }
@@ -2983,7 +2992,7 @@ APP_HTML = """
         .deploy-fact { display: flex; align-items: center; justify-content: space-between; gap: .85rem; border-bottom: 1px solid var(--home-border); padding-bottom: .68rem; }
         .deploy-fact:last-child { border-bottom: 0; padding-bottom: 0; }
         .deploy-fact-value { color: var(--home-text); font-size: .95rem; font-weight: 900; text-align: right; overflow-wrap: anywhere; }
-        .deploy-measure-grid { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: .7rem; }
+        .deploy-measure-grid { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: .7rem; }
         .deploy-measure { border: 1px solid var(--home-border); background: linear-gradient(145deg, var(--home-surface-strong), var(--home-surface)); border-radius: 1.05rem; padding: .78rem; min-height: 108px; box-shadow: var(--home-shadow-soft); }
         .deploy-measure-top { display: flex; align-items: center; justify-content: space-between; gap: .5rem; }
         .deploy-measure-icon { width: 2rem; height: 2rem; display: inline-flex; align-items: center; justify-content: center; border-radius: .75rem; border: 1px solid var(--home-border); background: var(--home-surface-muted); color: var(--home-text-secondary); }
@@ -2991,7 +3000,6 @@ APP_HTML = """
         .deploy-measure.energy .deploy-measure-value { color: var(--home-accent-energy); }
         .deploy-measure.carbon .deploy-measure-value { color: var(--home-accent-carbon); }
         .deploy-measure.cpu .deploy-measure-value, .deploy-measure.memory .deploy-measure-value { color: var(--home-accent-carbon); }
-        .deploy-measure.overhead .deploy-measure-value { color: var(--home-warning); }
         .deploy-two-col { display: grid; grid-template-columns: minmax(0, 1fr) minmax(320px, .9fr); gap: .9rem; align-items: stretch; }
         .deploy-strategy-value { color: var(--home-accent-carbon); font-size: clamp(2rem, 3.4vw, 3rem); line-height: .98; font-weight: 900; overflow-wrap: anywhere; }
         .deploy-mini-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .65rem; }
@@ -3007,7 +3015,7 @@ APP_HTML = """
         .deploy-snapshot-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .55rem; margin-top: .55rem; }
         .deploy-alert { border: 1px solid rgba(245, 158, 11, .28); background: rgba(245, 158, 11, .11); color: var(--home-warning); border-radius: 1rem; padding: .85rem; font-size: .86rem; font-weight: 800; }
         .deploy-intel-head { border: 1px solid var(--home-border-strong); background: linear-gradient(145deg, rgba(var(--home-accent-carbon-rgb), .16), rgba(var(--home-accent-energy-rgb), .08), var(--home-surface)); border-radius: 1.25rem; padding: 1rem; }
-        .deploy-intel-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: .8rem; }
+        .deploy-intel-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .8rem; }
         .deploy-intel-card { border: 1px solid var(--home-border); background: linear-gradient(145deg, var(--home-surface-strong), var(--home-surface)); border-radius: 1.15rem; padding: .9rem; min-height: 210px; box-shadow: var(--home-shadow-soft); }
         .deploy-anomaly-item { border: 1px solid var(--home-border); background: var(--home-surface-muted); border-radius: .95rem; padding: .75rem; }
         @media (max-width: 767px) {
@@ -3271,38 +3279,22 @@ APP_HTML = """
                 <div class="home-section-heading">
                     <div>
                         <p class="home-eyebrow">Lifecycle Components</p>
-                        <h2>Release - Deploy - Operate</h2>
                     </div>
-                    <p>Open a component for detailed Monitor intelligence. Overview cards stay focused on status, energy, carbon, and availability.</p>
                 </div>
                 <div class="lifecycle-grid mt-3">
                     {% for stage in lifecycle_sections %}
-                    {% if stage.key == 'operate' %}
-                    <div class="lifecycle-card disabled">
-                        <div class="lifecycle-top">
-                            <div class="flex items-center gap-2"><i data-lucide="{{ stage.icon }}" class="w-5 h-5 text-[var(--home-text-muted)]"></i><h3 class="lifecycle-name">{{ stage.label }}</h3></div>
-                            <span class="lifecycle-status">Coming Soon</span>
-                        </div>
-                        <div class="lifecycle-metrics">
-                            <div><p class="run-label">Energy</p><p class="run-value text-left">Not available</p></div>
-                            <div><p class="run-label">Carbon</p><p class="run-value text-left">Not available</p></div>
-                        </div>
-                        <p class="home-widget-note mt-4">Operate component integration is not implemented for PP2.</p>
-                    </div>
-                    {% else %}
                     <div class="lifecycle-card {{ stage.key }}">
                         <div class="lifecycle-top">
-                            <div class="flex items-center gap-2"><i data-lucide="{{ stage.icon }}" class="w-5 h-5 text-[var(--home-accent-energy)]"></i><h3 class="lifecycle-name">{{ stage.label }}</h3></div>
+                            <div class="lifecycle-stage-title"><span class="lifecycle-stage-icon"><i data-lucide="{{ stage.icon }}" class="w-5 h-5"></i></span><h3 class="lifecycle-name">{{ stage.label }}</h3></div>
                             <span class="lifecycle-status" style="color: {% if stage.skipped %}var(--home-warning){% elif stage.summary_status == 'Failed' %}var(--home-critical){% else %}var(--home-text-secondary){% endif %};">{{ stage.summary_status }}</span>
                         </div>
                         <div class="lifecycle-metrics">
-                            <div><p class="run-label">Energy</p><p class="run-value text-left">{{ stage.energy_display }}</p></div>
-                            <div><p class="run-label">Carbon</p><p class="run-value text-left">{{ stage.carbon_display }}</p></div>
+                            <div><p class="lifecycle-metric-label energy"><i data-lucide="zap" class="w-4 h-4"></i>Energy</p><p class="lifecycle-metric-value energy">{{ stage.energy_display }}</p></div>
+                            <div><p class="lifecycle-metric-label carbon"><i data-lucide="leaf" class="w-4 h-4"></i>Carbon</p><p class="lifecycle-metric-value carbon">{{ stage.carbon_display }}</p></div>
                         </div>
                         {% if stage.skipped and stage.skip_reason_display %}<p class="home-widget-note mt-4">Reason: {{ stage.skip_reason_display }}</p>{% endif %}
                         <a href="/run/{{ selected_run|urlencode }}/{{ stage.key }}" class="lifecycle-link">View Stage <i data-lucide="arrow-right" class="w-4 h-4"></i></a>
                     </div>
-                    {% endif %}
                     {% endfor %}
                 </div>
             </section>
@@ -3347,9 +3339,8 @@ APP_HTML = """
                     <div class="home-section-heading">
                         <div>
                             <p class="home-eyebrow">Monitor Sustainability</p>
-                            <h2>Measured Release cost</h2>
+                            <h2>Release Metrics</h2>
                         </div>
-                        <p>MONITOR MEASURED what happened and what the Release lifecycle consumed.</p>
                     </div>
                     {% if stage_detail.rows %}
                     {% for row in stage_detail.rows %}
@@ -3358,7 +3349,6 @@ APP_HTML = """
                         <div class="release-measure energy"><div class="release-measure-top"><p class="run-label">Energy</p><span class="release-measure-icon"><i data-lucide="zap" class="w-4 h-4"></i></span></div><p class="release-measure-value">{{ row.total_energy_display }}</p><p class="home-widget-note">Monitor total</p></div>
                         <div class="release-measure carbon"><div class="release-measure-top"><p class="run-label">Carbon</p><span class="release-measure-icon"><i data-lucide="leaf" class="w-4 h-4"></i></span></div><p class="release-measure-value">{{ row.total_carbon_display }}</p><p class="home-widget-note">Monitor total</p></div>
                         <div class="release-measure cpu"><div class="release-measure-top"><p class="run-label">CPU</p><span class="release-measure-icon"><i data-lucide="cpu" class="w-4 h-4"></i></span></div><p class="release-measure-value">{{ row.avg_cpu_display }}</p><p class="home-widget-note">Average utilization</p></div>
-                        <div class="release-measure overhead"><div class="release-measure-top"><p class="run-label">Overhead</p><span class="release-measure-icon"><i data-lucide="activity" class="w-4 h-4"></i></span></div><p class="release-measure-value">{{ row.overhead_percentage_display }}</p><p class="home-widget-note">Jenkins timing gap</p></div>
                     </div>
                     {% endfor %}
                     {% else %}
@@ -3371,9 +3361,8 @@ APP_HTML = """
                         <div class="home-section-heading !p-0">
                             <div>
                                 <p class="home-eyebrow">Release Decision</p>
-                                <h2>Decision context recorded by Jenkins</h2>
+                                <h2>Jenkins Decision Context</h2>
                             </div>
-                            <p>RELEASE DECISION explains why this lifecycle ran the way it did.</p>
                         </div>
                         {% if stage_detail.release_data %}
                         <div class="release-decision-primary mt-4">
@@ -3387,11 +3376,10 @@ APP_HTML = """
                                 <div class="release-mini"><p class="run-label">Scheduling Action</p><p class="release-mini-value">{{ stage_detail.release_data.scheduling_action_display }}</p></div>
                                 <div class="release-mini"><p class="run-label">Optimization Status</p><p class="release-mini-value {% if stage_detail.release_data.optimization_status_display == 'Bypassed' %}text-[var(--home-warning)]{% elif stage_detail.release_data.optimization_status_display == 'Applied' %}text-[var(--home-accent-energy)]{% endif %}">{{ stage_detail.release_data.optimization_status_display }}</p></div>
                                 <div class="release-mini"><p class="run-label">Execution Mode</p><p class="release-mini-value">{{ stage_detail.release_data.execution_mode_display }}</p></div>
-                                <div class="release-mini"><p class="run-label">Optimizer Executed</p><p class="release-mini-value">{{ stage_detail.release_data.optimizer_executed_display }}</p></div>
                                 <div class="release-mini"><p class="run-label">Scheduling Engine</p><p class="release-mini-value">{{ stage_detail.release_data.scheduling_engine_display }}</p></div>
                                 <div class="release-mini"><p class="run-label">Release Carbon Intensity</p><p class="release-mini-value">{{ stage_detail.release_data.carbon_intensity_display }}</p></div>
                                 <div class="release-mini"><p class="run-label">Optimizer Duration</p><p class="release-mini-value">{{ stage_detail.release_data.optimizer_duration_display }}</p></div>
-                                <div class="release-mini"><p class="run-label">Skip Reason</p><p class="release-mini-value">{{ stage_detail.release_data.optimizer_skip_reason_display }}</p></div>
+                                <div class="release-mini release-decision-wide"><p class="run-label">Skip Reason</p><p class="release-mini-value">{{ stage_detail.release_data.optimizer_skip_reason_display }}</p></div>
                             </div>
                         </div>
                         <div class="release-alert mt-4">{{ stage_detail.release_data.context_note }}</div>
@@ -3412,8 +3400,6 @@ APP_HTML = """
                             <div class="release-mini"><p class="run-label">Affected Modules</p><p class="release-mini-value">{{ stage_detail.release_data.affected_modules_display }}</p></div>
                             <div class="release-mini"><p class="run-label">Tests Executed</p><p class="release-mini-value">{{ stage_detail.release_data.tests_executed_display }}</p></div>
                             <div class="release-mini"><p class="run-label">Tests Skipped</p><p class="release-mini-value">{{ stage_detail.release_data.tests_skipped_display }}</p></div>
-                            <div class="release-mini"><p class="run-label">Release Started</p><p class="release-mini-value">{{ stage_detail.release_data.release_start_display }}</p></div>
-                            <div class="release-mini"><p class="run-label">Release Ended</p><p class="release-mini-value">{{ stage_detail.release_data.release_end_display }}</p></div>
                         </div>
                         <div class="release-flow">
                             <div class="release-step"><p class="run-label">Build</p><p class="release-mini-value">{{ stage_detail.release_data.build_duration_display }}</p></div>
@@ -3532,10 +3518,9 @@ APP_HTML = """
                 <section class="lifecycle-flow">
                     <div class="home-section-heading">
                         <div>
-                            <p class="home-eyebrow">Monitor Measured</p>
-                            <h2>Deploy lifecycle cost</h2>
+                            <p class="home-eyebrow">Monitor Sustainability</p>
+                            <h2>Deploy Metrics</h2>
                         </div>
-                        <p>Resource and sustainability measurements collected during the Deploy lifecycle.</p>
                     </div>
                     {% if stage_detail.rows %}
                     {% for row in stage_detail.rows %}
@@ -3545,7 +3530,6 @@ APP_HTML = """
                         <div class="deploy-measure carbon"><div class="deploy-measure-top"><p class="run-label">Carbon</p><span class="deploy-measure-icon"><i data-lucide="leaf" class="w-4 h-4"></i></span></div><p class="deploy-measure-value">{{ row.total_carbon_display }}</p><p class="home-widget-note">Monitor total</p></div>
                         <div class="deploy-measure cpu"><div class="deploy-measure-top"><p class="run-label">Average CPU</p><span class="deploy-measure-icon"><i data-lucide="cpu" class="w-4 h-4"></i></span></div><p class="deploy-measure-value">{{ row.avg_cpu_display }}</p><p class="home-widget-note">Monitor observed</p></div>
                         <div class="deploy-measure memory"><div class="deploy-measure-top"><p class="run-label">Average Memory</p><span class="deploy-measure-icon"><i data-lucide="memory-stick" class="w-4 h-4"></i></span></div><p class="deploy-measure-value">{{ row.avg_memory_display }}</p><p class="home-widget-note">Monitor observed</p></div>
-                        <div class="deploy-measure overhead"><div class="deploy-measure-top"><p class="run-label">Overhead</p><span class="deploy-measure-icon"><i data-lucide="activity" class="w-4 h-4"></i></span></div><p class="deploy-measure-value">{{ row.overhead_percentage_display }}</p><p class="home-widget-note">Jenkins timing gap</p></div>
                     </div>
                     {% endfor %}
                     {% else %}
@@ -3590,15 +3574,9 @@ APP_HTML = """
                         {% elif stage_detail.deploy_data %}
                         <div class="deploy-mini-grid mt-4">
                             <div class="deploy-mini"><p class="run-label">Carbon Intensity</p><p class="deploy-mini-value">{{ stage_detail.deploy_data.carbon_intensity_display }}</p></div>
-                            <div class="deploy-mini"><p class="run-label">Intensity Source</p><p class="deploy-mini-value">{{ stage_detail.deploy_data.intensity_source_display }}</p></div>
                             <div class="deploy-mini"><p class="run-label">Infra Multiplier</p><p class="deploy-mini-value">{{ stage_detail.deploy_data.infra_multiplier_display }}</p></div>
                             <div class="deploy-mini"><p class="run-label">Strategy Carbon Profile</p><p class="deploy-mini-value">{{ stage_detail.deploy_data.strategy_carbon_profile_display }}</p></div>
-                            <div class="deploy-mini"><p class="run-label">Deploy Energy</p><p class="deploy-mini-value">{{ stage_detail.deploy_data.total_energy_display }}</p></div>
-                            <div class="deploy-mini"><p class="run-label">Deploy Carbon</p><p class="deploy-mini-value">{{ stage_detail.deploy_data.total_g_co2_display }}</p></div>
                             <div class="deploy-mini"><p class="run-label">Profiler Samples</p><p class="deploy-mini-value">{{ stage_detail.deploy_data.samples_collected_display }}</p></div>
-                            <div class="deploy-mini"><p class="run-label">Peak CPU</p><p class="deploy-mini-value">{{ stage_detail.deploy_data.peak_cpu_display }}</p></div>
-                            <div class="deploy-mini"><p class="run-label">Peak Memory</p><p class="deploy-mini-value">{{ stage_detail.deploy_data.peak_memory_display }}</p></div>
-                            <div class="deploy-mini"><p class="run-label">Min Memory</p><p class="deploy-mini-value">{{ stage_detail.deploy_data.min_memory_display }}</p></div>
                         </div>
                         {% else %}
                         <p class="release-text font-bold mt-4">Deployment telemetry unavailable for this run.</p>
@@ -3647,9 +3625,7 @@ APP_HTML = """
                         {% if stage_detail.deploy_data and not stage_detail.skipped %}
                         <div class="deploy-mini-grid mt-3">
                             <div class="deploy-mini"><p class="run-label">Profiler Avg CPU</p><p class="deploy-mini-value">{{ stage_detail.deploy_data.avg_cpu_display }}</p></div>
-                            <div class="deploy-mini"><p class="run-label">Profiler Min CPU</p><p class="deploy-mini-value">{{ stage_detail.deploy_data.min_cpu_display }}</p></div>
                             <div class="deploy-mini"><p class="run-label">Profiler Avg Memory</p><p class="deploy-mini-value">{{ stage_detail.deploy_data.avg_memory_display }}</p></div>
-                            <div class="deploy-mini"><p class="run-label">Profiler Min Memory</p><p class="deploy-mini-value">{{ stage_detail.deploy_data.min_memory_display }}</p></div>
                         </div>
                         {% endif %}
                     </div>
@@ -3694,17 +3670,6 @@ APP_HTML = """
                             {% else %}
                             <p class="release-text text-sm mt-4">Awaiting integrated Monitor data.</p>
                             {% endif %}
-                        </div>
-                        <div class="deploy-intel-card">
-                            <div class="flex items-center justify-between gap-3"><div><p class="run-label">Baseline Context</p><p class="release-text text-sm font-bold mt-1">Historical population used</p></div><span class="deploy-measure-icon"><i data-lucide="database" class="w-4 h-4"></i></span></div>
-                            <p class="text-2xl font-black mt-4 text-[var(--home-text)]">{{ stage_detail.baseline_context.label }}</p>
-                            <div class="grid grid-cols-2 gap-2 mt-4 text-xs">
-                                <div class="deploy-mini"><p class="run-label">Scope</p><p class="deploy-mini-value">{{ stage_detail.baseline_context.context_scope }}</p></div>
-                                <div class="deploy-mini"><p class="run-label">Historical Runs</p><p class="deploy-mini-value">{{ stage_detail.baseline_context.historical_samples_display }}</p></div>
-                                <div class="deploy-mini"><p class="run-label">Strategy-specific</p><p class="deploy-mini-value">{{ 'Yes' if stage_detail.baseline_context.strategy_specific else 'No' }}</p></div>
-                                <div class="deploy-mini"><p class="run-label">Stage</p><p class="deploy-mini-value">Deploy</p></div>
-                            </div>
-                            {% if stage_detail.baseline_context.fallback_reason %}<p class="text-xs mt-3 text-[var(--home-warning)]">{{ stage_detail.baseline_context.fallback_reason }}</p>{% endif %}
                         </div>
                     </div>
                 </section>
