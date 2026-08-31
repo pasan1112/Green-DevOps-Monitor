@@ -15,13 +15,7 @@ def calculate_sustainability_score(
     anomalies: List[Dict],
     stage_baseline_df: pd.DataFrame | None = None,
 ) -> Dict[str, object]:
-    score = 100
-
-    critical_count = sum(1 for item in anomalies if item.get("severity") == "critical")
-    warning_count = sum(1 for item in anomalies if item.get("severity") == "warning")
-    score -= critical_count * 15
-    score -= warning_count * 7
-
+    anomalies = anomalies or []
     current = current_run_df.copy() if current_run_df is not None else pd.DataFrame()
     for column in [
         "duration_seconds",
@@ -44,18 +38,47 @@ def calculate_sustainability_score(
 
     contextual_baseline = _contextual_baseline_totals(stage_baseline_df)
     comparison_baseline = contextual_baseline or baseline_df
+    baseline_context = _baseline_context(stage_baseline_df, comparison_baseline)
 
-    if _is_above_baseline(current_totals["total_energy_kwh"], comparison_baseline.get("total_energy_kwh_mean"), 30):
-        score -= 10
+    if current.empty:
+        score = 50
+        explanation = "This run has insufficient lifecycle telemetry for a confident sustainability score."
+        return {
+            "score": score,
+            "grade": _grade_from_score(score),
+            "status": "Warning",
+            "explanation": explanation,
+            "baseline_context": baseline_context,
+        }
+
+    component_scores = {
+        "total_energy_kwh": _baseline_component_score(
+            current_totals["total_energy_kwh"],
+            comparison_baseline.get("total_energy_kwh_mean"),
+        ),
+        "total_carbon_kg": _baseline_component_score(
+            current_totals["total_carbon_kg"],
+            comparison_baseline.get("total_carbon_kg_mean"),
+        ),
+        "duration_seconds": _baseline_component_score(
+            current_totals["duration_seconds"],
+            comparison_baseline.get("duration_seconds_mean"),
+        ),
+    }
+
+    score = _weighted_sustainability_score(component_scores)
+
+    if _is_worse_than_baseline(current_totals["total_energy_kwh"], comparison_baseline.get("total_energy_kwh_mean")):
         explanation_bits.append("total pipeline energy is above baseline")
-
-    if _is_above_baseline(current_totals["total_carbon_kg"], comparison_baseline.get("total_carbon_kg_mean"), 30):
-        score -= 10
+    if _is_worse_than_baseline(current_totals["total_carbon_kg"], comparison_baseline.get("total_carbon_kg_mean")):
         explanation_bits.append("total pipeline carbon is above baseline")
-
-    if _is_above_baseline(current_totals["duration_seconds"], comparison_baseline.get("duration_seconds_mean"), 30):
-        score -= 8
+    if _is_worse_than_baseline(current_totals["duration_seconds"], comparison_baseline.get("duration_seconds_mean")):
         explanation_bits.append("pipeline duration is above baseline")
+
+    critical_count = sum(1 for item in anomalies if item.get("severity") == "critical")
+    warning_count = sum(1 for item in anomalies if item.get("severity") == "warning")
+    score -= critical_count * 15
+    score -= warning_count * 7
 
     max_overhead_percentage = float(current["overhead_percentage"].max()) if not current.empty else 0.0
     if max_overhead_percentage > 85:
@@ -84,7 +107,6 @@ def calculate_sustainability_score(
     else:
         status = anomaly_summary["overall_status"]
 
-    baseline_context = _baseline_context(stage_baseline_df, comparison_baseline)
     explanation = _build_explanation(score, explanation_bits, anomalies, comparison_baseline)
 
     return {
@@ -96,10 +118,70 @@ def calculate_sustainability_score(
     }
 
 
-def _is_above_baseline(current_value, baseline_mean, threshold_percent):
-    if baseline_mean is None or baseline_mean <= 0:
+def _baseline_component_score(current_value, baseline_mean):
+    baseline = _safe_positive_float(baseline_mean)
+    if baseline is None:
+        return 100.0
+
+    current = _safe_non_negative_float(current_value)
+    ratio = current / baseline
+    points = [
+        (1.00, 100.0),
+        (1.10, 90.0),
+        (1.20, 80.0),
+        (1.30, 65.0),
+        (1.50, 40.0),
+        (1.75, 20.0),
+        (2.00, 0.0),
+    ]
+
+    if ratio <= points[0][0]:
+        return points[0][1]
+    if ratio >= points[-1][0]:
+        return points[-1][1]
+
+    for (left_ratio, left_score), (right_ratio, right_score) in zip(points, points[1:]):
+        if left_ratio <= ratio <= right_ratio:
+            distance = (ratio - left_ratio) / (right_ratio - left_ratio)
+            return left_score + distance * (right_score - left_score)
+    return 0.0
+
+
+def _weighted_sustainability_score(component_scores):
+    weights = {
+        "total_energy_kwh": 35.0,
+        "total_carbon_kg": 35.0,
+        "duration_seconds": 20.0,
+    }
+    total_weight = sum(weights.values())
+    return sum(component_scores[metric] * (weight / total_weight) for metric, weight in weights.items())
+
+
+def _is_worse_than_baseline(current_value, baseline_mean):
+    baseline = _safe_positive_float(baseline_mean)
+    if baseline is None:
         return False
-    return current_value > baseline_mean * (1 + threshold_percent / 100.0)
+    return _safe_non_negative_float(current_value) > baseline
+
+
+def _safe_positive_float(value):
+    try:
+        numeric = float(value)
+    except (TypeError, ValueError):
+        return None
+    if pd.isna(numeric) or numeric <= 0:
+        return None
+    return numeric
+
+
+def _safe_non_negative_float(value):
+    try:
+        numeric = float(value)
+    except (TypeError, ValueError):
+        return 0.0
+    if pd.isna(numeric):
+        return 0.0
+    return max(0.0, numeric)
 
 
 def _grade_from_score(score):
