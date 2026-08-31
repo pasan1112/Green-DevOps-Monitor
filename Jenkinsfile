@@ -866,15 +866,14 @@ pipeline {
         }
 
         stage('Confirm Deploy Strategy') {
+            // [bypass-green] skips GREEN SCHEDULING (delay) only — the Green AI agent
+            // request still runs so a strategy is always selected before deploy.
+            // Only [urgent] skips the AI check entirely (speed is critical).
             when {
                 expression {
                     !params.DRY_RUN &&
                     appAffected() &&
-                    env.URGENT_DEPLOY != 'true' &&
-                    (
-                        env.BYPASS_GREEN != 'true' ||
-                        params.FORCE_FULL_BUILD
-                    )
+                    env.URGENT_DEPLOY != 'true'
                 }
             }
             steps {

@@ -26,8 +26,10 @@ from intelligence import (
     detect_stage_anomalies,
     summarize_anomalies,
 )
+from operate.routes import operate_bp
 
 app = Flask(__name__)
+app.register_blueprint(operate_bp)
 
 MONGO_DB_NAME = "green_devops_monitor"
 MONGO_COLLECTION_NAME = "pipeline_metrics"
@@ -3051,6 +3053,7 @@ APP_HTML = """
             <div class="flex flex-wrap items-center gap-2">
                 <a href="/" class="{% if page == 'home' %}home-nav-link active{% elif themed_page %}home-nav-link{% else %}rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50{% endif %}"><i data-lucide="house" class="{% if themed_page %}w-4 h-4{% else %}hidden{% endif %}"></i>Home</a>
                 <a href="/runs" class="{% if page == 'runs' or page == 'run' or release_stage_page or deploy_stage_page %}home-nav-link active{% elif themed_page %}home-nav-link{% else %}rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50{% endif %}"><i data-lucide="list" class="{% if themed_page %}w-4 h-4{% else %}hidden{% endif %}"></i>Runs</a>
+                <a href="/operate" class="{% if themed_page %}home-nav-link{% else %}rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50{% endif %}"><i data-lucide="activity" class="{% if themed_page %}w-4 h-4{% else %}hidden{% endif %}"></i>Operate</a>
                 {% if release_stage_page or deploy_stage_page %}<a href="/run/{{ selected_run|urlencode }}" class="home-nav-link"><i data-lucide="arrow-left" class="w-4 h-4"></i>Back to Run</a>{% endif %}
                 {% if themed_page %}
                 <div class="theme-toggle" role="group" aria-label="Color theme">

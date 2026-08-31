@@ -1,0 +1,224 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Operate - Green DevOps Monitor</title>
+    <script>
+        (function() {
+            const storageKey = "green-devops-theme";
+            let savedTheme = null;
+            try { savedTheme = localStorage.getItem(storageKey); } catch (error) { savedTheme = null; }
+            const preferredTheme = window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+            document.documentElement.dataset.theme = savedTheme || preferredTheme || "light";
+        })();
+    </script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <link rel="stylesheet" href="{{ url_for('operate.static', filename='operate.css') }}">
+</head>
+<body class="operate-body">
+    <div class="operate-shell">
+        <header class="operate-header">
+            <a href="/" class="operate-brand">
+                <span class="operate-brand-mark"><i data-lucide="leaf" class="w-5 h-5"></i></span>
+                <span>
+                    <span class="operate-brand-title">Green DevOps</span>
+                    <span class="operate-brand-subtitle">Live operation intelligence across runtime optimization</span>
+                </span>
+            </a>
+            <nav class="operate-nav">
+                <a href="/" class="operate-nav-link"><i data-lucide="house" class="w-4 h-4"></i>Home</a>
+                <a href="/runs" class="operate-nav-link"><i data-lucide="list" class="w-4 h-4"></i>Runs</a>
+                <a href="/operate" class="operate-nav-link active"><i data-lucide="activity" class="w-4 h-4"></i>Operate</a>
+                <div class="theme-toggle" role="group" aria-label="Color theme">
+                    <button type="button" class="theme-light" data-theme-choice="light" aria-label="Use light theme"><i data-lucide="sun" class="w-4 h-4"></i></button>
+                    <button type="button" class="theme-dark" data-theme-choice="dark" aria-label="Use dark theme"><i data-lucide="moon" class="w-4 h-4"></i></button>
+                </div>
+            </nav>
+        </header>
+
+        <main class="operate-main">
+            <section class="operate-hero">
+                <div>
+                    <p class="operate-eyebrow">Operation Stage Status</p>
+                    <h1>Operate</h1>
+                    <p class="operate-muted">Runtime metrics, workload prediction, job prioritization, carbon optimization, and Kubernetes scaling decisions.</p>
+                </div>
+                <div class="operate-live">
+                    <span id="connectionDot" class="status-dot warning"></span>
+                    <span id="connectionText">Connecting</span>
+                    <span id="lastUpdated">Last updated: waiting</span>
+                </div>
+            </section>
+
+            <section class="status-grid">
+                <article class="status-card">
+                    <p>System</p>
+                    <strong data-field="system.system_id">Waiting</strong>
+                </article>
+                <article class="status-card">
+                    <p>Operation Mode</p>
+                    <strong data-field="system.mode">Waiting</strong>
+                </article>
+                <article class="status-card">
+                    <p>Operation API</p>
+                    <strong data-field="status">Waiting</strong>
+                </article>
+                <article class="status-card">
+                    <p>Prometheus</p>
+                    <strong data-field="prometheus.status">Waiting</strong>
+                </article>
+                <article class="status-card">
+                    <p>Kubernetes</p>
+                    <strong data-field="kubernetes.status">Waiting</strong>
+                </article>
+                <article class="status-card">
+                    <p>Deployment</p>
+                    <strong data-field="kubernetes.deployment">Waiting</strong>
+                </article>
+                <article class="status-card">
+                    <p>Namespace</p>
+                    <strong data-field="kubernetes.namespace">Waiting</strong>
+                </article>
+            </section>
+
+            <section class="operate-panel chart-panel">
+                <div class="section-heading">
+                    <div>
+                        <p class="operate-eyebrow">Current vs Predicted CPU</p>
+                        <h2>Prometheus Runtime Metrics -> LSTM Workload Prediction</h2>
+                    </div>
+                    <div class="chart-meta">
+                        <span id="cpuAvailability">Current CPU unavailable</span>
+                        <span>Prediction horizon: 30 seconds</span>
+                    </div>
+                </div>
+                <div class="chart-wrap"><canvas id="cpuPredictionChart"></canvas></div>
+                <div class="metric-strip">
+                    <div><p>Load Level</p><strong data-field="latest_prediction.load_level">Waiting</strong></div>
+                    <div><p>Prediction Confidence</p><strong data-format="percent" data-field="latest_prediction.confidence">Waiting</strong></div>
+                    <div><p>Predicted CPU</p><strong data-format="percent-value" data-field="latest_prediction.cpu_percent">Waiting</strong></div>
+                </div>
+            </section>
+
+            <section class="two-column">
+                <article class="operate-panel">
+                    <div class="section-heading compact">
+                        <p class="operate-eyebrow">Workload Prediction</p>
+                        <h2>LSTM Prediction Output</h2>
+                    </div>
+                    <div id="predictionEmpty" class="empty-state">Waiting for workload prediction</div>
+                    <div class="kpi-grid">
+                        <div class="kpi"><p>Predicted CPU</p><strong data-format="percent-value" data-field="latest_prediction.cpu_percent">Waiting</strong></div>
+                        <div class="kpi"><p>Predicted Load</p><strong data-field="latest_prediction.load_level">Waiting</strong></div>
+                        <div class="kpi"><p>Initial Recommended Pods</p><strong data-field="latest_prediction.pods">Waiting</strong></div>
+                        <div class="kpi"><p>Prediction Confidence</p><strong data-format="percent" data-field="latest_prediction.confidence">Waiting</strong></div>
+                    </div>
+                </article>
+
+                <article class="operate-panel">
+                    <div class="section-heading compact">
+                        <p class="operate-eyebrow">Kubernetes Optimization</p>
+                        <h2>Replica Decision Path</h2>
+                    </div>
+                    <div id="kubernetesEmpty" class="empty-state">Kubernetes connection unavailable</div>
+                    <div class="kpi-grid">
+                        <div class="kpi"><p>Current Kubernetes Pods</p><strong data-field="kubernetes.actual_replicas">Waiting</strong></div>
+                        <div class="kpi"><p>Initial / Raw Required Pods</p><strong data-field="carbon.raw_required_pods">Waiting</strong></div>
+                        <div class="kpi"><p>Optimized Required Pods</p><strong data-field="carbon.optimized_required_pods">Waiting</strong></div>
+                        <div class="kpi"><p>Final Selected Pods</p><strong data-field="carbon.selected_required_pods">Waiting</strong></div>
+                        <div class="kpi"><p>Pods Avoided</p><strong data-field="carbon.pods_avoided">Waiting</strong></div>
+                        <div class="kpi"><p>Latest Action</p><strong data-format="action" data-field="kubernetes_scaling.action">Waiting</strong></div>
+                        <div class="kpi"><p>Previous Replicas</p><strong data-field="kubernetes_scaling.previous_replicas">Waiting</strong></div>
+                        <div class="kpi"><p>Requested Replicas</p><strong data-field="kubernetes_scaling.requested_replicas">Waiting</strong></div>
+                        <div class="kpi"><p>Scaling Applied</p><strong data-format="boolean" data-field="kubernetes_scaling.applied">Waiting</strong></div>
+                        <div class="kpi"><p>Scaling Status</p><strong data-field="kubernetes_scaling.status">Waiting</strong></div>
+                    </div>
+                </article>
+            </section>
+
+            <section class="operate-panel">
+                <div class="section-heading compact">
+                    <p class="operate-eyebrow">Job Prioritization</p>
+                    <h2>Delay Eligible Workload</h2>
+                </div>
+                <div id="jobsEmpty" class="empty-state">No job evaluation available yet</div>
+                <div class="priority-grid">
+                    <div class="priority-card"><span class="priority high">High</span><strong data-field="jobs.classification_summary.high_priority">Waiting</strong></div>
+                    <div class="priority-card"><span class="priority medium">Medium</span><strong data-field="jobs.classification_summary.medium_priority">Waiting</strong></div>
+                    <div class="priority-card"><span class="priority low">Low</span><strong data-field="jobs.classification_summary.low_priority">Waiting</strong></div>
+                    <div class="priority-card"><span class="priority delayed"><i data-lucide="pause-circle" class="w-4 h-4"></i>Delayable</span><strong data-field="jobs.delayable_jobs">Waiting</strong></div>
+                </div>
+                <div class="job-detail-grid">
+                    <div><p>Total Jobs</p><strong data-field="jobs.total_jobs">Waiting</strong></div>
+                    <div><p>Workload Reduction</p><strong data-format="fraction-percent" data-field="jobs.workload_reduction_percent">Waiting</strong></div>
+                    <div><p>Delayed CPU</p><strong data-format="percent-value" data-field="jobs.delayed_cpu_percent">Waiting</strong></div>
+                    <div><p>Delayed Job IDs</p><strong data-format="list" data-field="jobs.delayable_job_ids">Waiting</strong></div>
+                </div>
+                <p id="jobReason" class="decision-reason">Waiting for decision reason</p>
+            </section>
+
+            <section class="operate-panel">
+                <div class="section-heading compact">
+                    <p class="operate-eyebrow">Energy & Carbon Optimization</p>
+                    <h2>Carbon / Pod Comparison</h2>
+                </div>
+                <div id="carbonEmpty" class="empty-state">Waiting for carbon evaluation</div>
+                <div class="carbon-flow">
+                    <article>
+                        <p>Without Green Optimization</p>
+                        <strong data-field="carbon.raw_required_pods">Waiting</strong>
+                        <span>Raw Pods</span>
+                        <strong data-format="carbon" data-field="carbon.raw_carbon_gco2">Waiting</strong>
+                        <span>Raw Carbon</span>
+                    </article>
+                    <div class="flow-arrow"><i data-lucide="arrow-right" class="w-5 h-5"></i></div>
+                    <article>
+                        <p>With Green Optimization</p>
+                        <strong data-field="carbon.optimized_required_pods">Waiting</strong>
+                        <span>Optimized Pods</span>
+                        <strong data-format="carbon" data-field="carbon.optimized_carbon_gco2">Waiting</strong>
+                        <span>Optimized Carbon</span>
+                    </article>
+                    <div class="flow-arrow"><i data-lucide="arrow-right" class="w-5 h-5"></i></div>
+                    <article class="saving">
+                        <p>Optimization Result</p>
+                        <strong data-field="carbon.pods_avoided">Waiting</strong>
+                        <span>Pods Avoided</span>
+                        <strong data-format="carbon" data-field="carbon.carbon_saving_gco2">Waiting</strong>
+                        <span>Carbon Saved</span>
+                        <strong data-format="percent-value" data-field="carbon.carbon_saving_percent">Waiting</strong>
+                        <span>Carbon Reduction</span>
+                    </article>
+                </div>
+                <div class="energy-grid">
+                    <div><p>Raw Energy</p><strong data-format="energy" data-field="carbon.raw_energy_kwh">Waiting</strong></div>
+                    <div><p>Optimized Energy</p><strong data-format="energy" data-field="carbon.optimized_energy_kwh">Waiting</strong></div>
+                    <div><p>Current / Selected Energy</p><strong data-format="energy" data-field="carbon.estimated_energy_kwh">Waiting</strong></div>
+                    <div><p>Selected Scenario</p><strong data-format="action" data-field="carbon.selected_scenario">Waiting</strong></div>
+                    <div><p>Carbon Recommendation</p><strong data-format="action" data-field="carbon.recommended_action">Waiting</strong></div>
+                </div>
+            </section>
+
+            <section class="final-decision">
+                <div>
+                    <p class="operate-eyebrow">Final Runtime Decision</p>
+                    <h2 data-format="action" data-field="kubernetes_scaling.action">Waiting</h2>
+                    <p class="operate-muted">Final Kubernetes scaling action selected after prediction, prioritization, and carbon optimization.</p>
+                </div>
+                <div class="decision-grid">
+                    <div><p>Predicted Load</p><strong data-field="latest_prediction.load_level">Waiting</strong></div>
+                    <div><p>Initial Pod Requirement</p><strong data-field="carbon.raw_required_pods">Waiting</strong></div>
+                    <div><p>Delayable Jobs</p><strong data-field="jobs.delayable_jobs">Waiting</strong></div>
+                    <div><p>Optimized Pod Requirement</p><strong data-field="carbon.optimized_required_pods">Waiting</strong></div>
+                    <div><p>Final Selected Pods</p><strong data-field="carbon.selected_required_pods">Waiting</strong></div>
+                    <div><p>Carbon Saving</p><strong data-format="percent-value" data-field="carbon.carbon_saving_percent">Waiting</strong></div>
+                </div>
+            </section>
+        </main>
+    </div>
+    <script src="{{ url_for('operate.static', filename='operate.js') }}"></script>
+</body>
+</html>
