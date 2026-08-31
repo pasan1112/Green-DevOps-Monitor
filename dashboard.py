@@ -2690,6 +2690,15 @@ APP_HTML = """
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Green DevOps Monitor</title>
+    <script>
+        (function() {
+            const storageKey = "green-devops-theme";
+            let savedTheme = null;
+            try { savedTheme = localStorage.getItem(storageKey); } catch (error) { savedTheme = null; }
+            const preferredTheme = window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+            document.documentElement.dataset.theme = savedTheme || preferredTheme || "light";
+        })();
+    </script>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script src="https://unpkg.com/lucide@latest"></script>
@@ -2724,65 +2733,325 @@ APP_HTML = """
         .timeline-line { width: 2px; min-height: 2rem; background: linear-gradient(180deg, #10b981, #38bdf8); margin-left: .42rem; }
         .status-pulse { width: 8px; height: 8px; border-radius: 50%; display: inline-block; animation: pulse 2s infinite; }
         @keyframes pulse { 0% { box-shadow: 0 0 0 0 rgba(34, 197, 94, .55); } 70% { box-shadow: 0 0 0 10px rgba(34, 197, 94, 0); } 100% { box-shadow: 0 0 0 0 rgba(34, 197, 94, 0); } }
-        body.home-body { background: #f6f7f9; color: #111827; }
-        .home-shell { max-width: 1280px; margin: 0 auto; }
-        .home-header { border: 1px solid rgba(209, 213, 219, .72); background: rgba(255,255,255,.86); border-radius: 1.25rem; padding: .85rem 1rem; box-shadow: 0 12px 36px rgba(15, 23, 42, .055); backdrop-filter: blur(18px); }
-        .home-brand-mark { width: 2.25rem; height: 2.25rem; border-radius: .85rem; display: inline-flex; align-items: center; justify-content: center; background: #ecfdf5; color: #047857; border: 1px solid rgba(16,185,129,.16); }
-        .home-nav-link { display: inline-flex; align-items: center; gap: .4rem; border-radius: 999px; padding: .5rem .75rem; color: #64748b; font-size: .875rem; font-weight: 700; transition: background .16s ease, color .16s ease; }
-        .home-nav-link:hover { background: #f1f5f9; color: #0f172a; }
-        .home-nav-link.active { background: #111827; color: #ffffff; }
-        .home-source-chip { display: inline-flex; align-items: center; gap: .5rem; border-radius: 999px; border: 1px solid rgba(209,213,219,.82); background: #ffffff; padding: .5rem .8rem; color: #475569; font-size: .8125rem; font-weight: 700; }
-        .home-hero { padding: 3rem 0 1.25rem; }
-        .home-eyebrow { font-size: .72rem; line-height: 1rem; font-weight: 800; letter-spacing: .18em; text-transform: uppercase; color: #059669; }
-        .home-title { margin-top: .85rem; max-width: 820px; font-size: clamp(2.25rem, 5vw, 3.8rem); line-height: .98; font-weight: 900; letter-spacing: 0; color: #111827; }
-        .home-subtitle { margin-top: 1rem; max-width: 720px; color: #64748b; font-size: 1rem; line-height: 1.75; font-weight: 500; }
-        .home-kpi-grid { display: grid; grid-template-columns: repeat(1, minmax(0, 1fr)); gap: 1rem; }
+        :root, [data-theme="light"] {
+            --home-bg: #eff5f3;
+            --home-bg-deep: #dcece8;
+            --home-surface: rgba(255,255,255,.82);
+            --home-surface-strong: rgba(255,255,255,.94);
+            --home-surface-muted: rgba(241,245,249,.82);
+            --home-border: rgba(148,163,184,.30);
+            --home-border-strong: rgba(148,163,184,.46);
+            --home-text: #10201d;
+            --home-text-secondary: #475569;
+            --home-text-muted: #7b8a9b;
+            --home-accent-energy: #059669;
+            --home-accent-energy-rgb: 5, 150, 105;
+            --home-accent-carbon: #0284c7;
+            --home-accent-carbon-rgb: 2, 132, 199;
+            --home-accent-health: #00a884;
+            --home-warning: #d97706;
+            --home-critical: #e11d48;
+            --home-shadow: 0 20px 60px rgba(15, 23, 42, .12);
+            --home-shadow-soft: 0 14px 42px rgba(15, 23, 42, .08);
+            --home-grid: rgba(15, 23, 42, .055);
+        }
+        [data-theme="dark"] {
+            --home-bg: #071a17;
+            --home-bg-deep: #081b2a;
+            --home-surface: rgba(12, 31, 34, .74);
+            --home-surface-strong: rgba(13, 38, 43, .92);
+            --home-surface-muted: rgba(15, 45, 50, .62);
+            --home-border: rgba(148, 163, 184, .18);
+            --home-border-strong: rgba(34, 211, 238, .24);
+            --home-text: #f8fafc;
+            --home-text-secondary: #b7c4d4;
+            --home-text-muted: #7f91a3;
+            --home-accent-energy: #00c896;
+            --home-accent-energy-rgb: 0, 200, 150;
+            --home-accent-carbon: #22d3ee;
+            --home-accent-carbon-rgb: 34, 211, 238;
+            --home-accent-health: #2dd4bf;
+            --home-warning: #f59e0b;
+            --home-critical: #fb7185;
+            --home-shadow: 0 24px 72px rgba(0, 0, 0, .34);
+            --home-shadow-soft: 0 18px 50px rgba(0, 0, 0, .26);
+            --home-grid: rgba(226, 232, 240, .055);
+        }
+        body.home-body { background: radial-gradient(ellipse at 72% 10%, rgba(var(--home-accent-energy-rgb), .18), transparent 36%), radial-gradient(ellipse at 16% 34%, rgba(var(--home-accent-carbon-rgb), .13), transparent 30%), linear-gradient(145deg, var(--home-bg) 0%, var(--home-bg-deep) 100%); color: var(--home-text); }
+        body.home-body::before { content: ""; position: fixed; inset: 0; pointer-events: none; background-image: linear-gradient(var(--home-grid) 1px, transparent 1px), linear-gradient(90deg, var(--home-grid) 1px, transparent 1px); background-size: 44px 44px; mask-image: linear-gradient(180deg, rgba(0,0,0,.7), transparent 72%); }
+        .home-shell { width: min(100% - 1.5rem, 1450px); margin: 0 auto; }
+        .home-header { position: relative; z-index: 1; border: 1px solid var(--home-border); background: color-mix(in srgb, var(--home-surface-strong) 88%, transparent); border-radius: 1.25rem; padding: .85rem 1rem; box-shadow: var(--home-shadow-soft); backdrop-filter: blur(20px); }
+        .home-brand-mark { width: 2.25rem; height: 2.25rem; border-radius: .85rem; display: inline-flex; align-items: center; justify-content: center; background: rgba(var(--home-accent-energy-rgb), .14); color: var(--home-accent-energy); border: 1px solid rgba(var(--home-accent-energy-rgb), .25); box-shadow: 0 0 24px rgba(var(--home-accent-energy-rgb), .16); }
+        .home-nav-link { display: inline-flex; align-items: center; gap: .4rem; border-radius: 999px; padding: .5rem .75rem; color: var(--home-text-secondary); font-size: .875rem; font-weight: 700; transition: background .16s ease, color .16s ease; }
+        .home-nav-link:hover { background: var(--home-surface-muted); color: var(--home-text); }
+        .home-nav-link.active { background: rgba(var(--home-accent-energy-rgb), .16); color: var(--home-accent-energy); box-shadow: inset 0 0 0 1px rgba(var(--home-accent-energy-rgb), .22); }
+        .home-source-chip { display: inline-flex; align-items: center; gap: .5rem; border-radius: 999px; border: 1px solid var(--home-border); background: var(--home-surface); padding: .5rem .8rem; color: var(--home-text-secondary); font-size: .8125rem; font-weight: 700; }
+        .theme-toggle { display: inline-grid; grid-template-columns: 1fr 1fr; align-items: center; gap: .18rem; border: 1px solid var(--home-border); background: var(--home-surface); border-radius: 999px; padding: .2rem; color: var(--home-text-secondary); }
+        .theme-toggle button { width: 2rem; height: 2rem; display: inline-flex; align-items: center; justify-content: center; border-radius: 999px; transition: background .16s ease, color .16s ease, box-shadow .16s ease; }
+        .theme-toggle button:focus-visible { outline: 2px solid var(--home-accent-carbon); outline-offset: 2px; }
+        [data-theme="light"] .theme-toggle .theme-light, [data-theme="dark"] .theme-toggle .theme-dark { background: rgba(var(--home-accent-energy-rgb), .18); color: var(--home-accent-energy); box-shadow: inset 0 0 0 1px rgba(var(--home-accent-energy-rgb), .18); }
+        .home-hero { position: relative; z-index: 1; display: grid; grid-template-columns: minmax(0, 1fr); gap: 1.4rem; align-items: center; padding: 1.55rem 0 .35rem; }
+        @media (min-width: 960px) { .home-hero { grid-template-columns: minmax(0, 1.4fr) minmax(300px, 1fr); } }
+        .home-eyebrow { font-size: .72rem; line-height: 1rem; font-weight: 800; letter-spacing: .18em; text-transform: uppercase; color: var(--home-accent-energy); }
+        .home-title { margin-top: .65rem; max-width: 860px; font-size: clamp(2.35rem, 4.5vw, 4rem); line-height: .96; font-weight: 900; letter-spacing: 0; color: var(--home-text); }
+        .home-title span { display: block; color: var(--home-accent-energy); text-shadow: 0 0 38px rgba(var(--home-accent-energy-rgb), .30); }
+        .home-subtitle { margin-top: .85rem; max-width: 720px; color: var(--home-text-secondary); font-size: 1rem; line-height: 1.6; font-weight: 500; }
+        .home-signal { min-height: 176px; border: 1px solid var(--home-border-strong); background: linear-gradient(145deg, rgba(var(--home-accent-energy-rgb), .14), rgba(var(--home-accent-carbon-rgb), .10) 42%, var(--home-surface)); border-radius: 1.55rem; position: relative; overflow: hidden; box-shadow: var(--home-shadow); }
+        .home-signal::before { content: ""; position: absolute; inset: 0; background-image: linear-gradient(90deg, transparent 0 18%, rgba(var(--home-accent-energy-rgb), .18) 18.5%, transparent 19%), linear-gradient(135deg, transparent 0 46%, rgba(var(--home-accent-carbon-rgb), .16) 47%, transparent 49%); background-size: 68px 68px, 100% 100%; opacity: .7; }
+        .home-signal-wave { position: absolute; left: 9%; right: 9%; top: 44%; height: 4px; border-radius: 999px; background: linear-gradient(90deg, transparent, var(--home-accent-energy), var(--home-accent-carbon), transparent); box-shadow: 0 0 30px rgba(var(--home-accent-energy-rgb), .38); }
+        .home-signal-node { position: absolute; width: .7rem; height: .7rem; border-radius: 999px; background: var(--home-accent-energy); box-shadow: 0 0 24px rgba(var(--home-accent-energy-rgb), .72); }
+        .home-signal-node.one { left: 18%; top: 34%; }
+        .home-signal-node.two { left: 48%; top: 43%; background: var(--home-accent-carbon); box-shadow: 0 0 24px rgba(var(--home-accent-carbon-rgb), .62); }
+        .home-signal-node.three { right: 18%; top: 55%; }
+        .home-signal-caption { position: absolute; left: 1.2rem; right: 1.2rem; bottom: 1rem; display: flex; justify-content: space-between; gap: 1rem; color: var(--home-text-secondary); font-size: .75rem; font-weight: 800; }
+        .home-kpi-grid { display: grid; grid-template-columns: repeat(1, minmax(0, 1fr)); gap: .9rem; }
         @media (min-width: 768px) { .home-kpi-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
-        @media (min-width: 1180px) { .home-kpi-grid { grid-template-columns: 1.15fr 1.15fr 1fr .85fr; } }
-        .home-widget { position: relative; overflow: hidden; border-radius: 1.25rem; border: 1px solid rgba(209,213,219,.72); background: #ffffff; padding: 1.25rem; min-height: 168px; box-shadow: 0 14px 40px rgba(15, 23, 42, .06); transition: transform .18s ease, box-shadow .18s ease, border-color .18s ease; }
-        .home-widget:hover { transform: translateY(-2px); border-color: rgba(148,163,184,.7); box-shadow: 0 20px 52px rgba(15, 23, 42, .09); }
-        .home-widget-icon { width: 2.35rem; height: 2.35rem; display: inline-flex; align-items: center; justify-content: center; border-radius: .95rem; background: #f8fafc; color: #475569; border: 1px solid rgba(226,232,240,.9); }
-        .home-widget-value { margin-top: 1.75rem; font-size: clamp(1.8rem, 3vw, 2.65rem); line-height: 1; font-weight: 900; letter-spacing: 0; color: #111827; overflow-wrap: anywhere; }
-        .home-widget-label { font-size: .92rem; color: #475569; font-weight: 700; }
-        .home-widget-note { margin-top: .6rem; font-size: .78rem; line-height: 1.45; color: #94a3b8; font-weight: 600; }
-        .home-panel { border: 1px solid rgba(209,213,219,.72); background: rgba(255,255,255,.92); border-radius: 1.5rem; box-shadow: 0 16px 48px rgba(15, 23, 42, .07); }
-        .home-section-heading { display: flex; align-items: flex-end; justify-content: space-between; gap: 1rem; padding: 1.25rem 1.35rem 0; }
-        .home-section-title { color: #111827; font-size: 1.15rem; font-weight: 850; letter-spacing: 0; }
-        .home-section-subtitle { margin-top: .25rem; color: #64748b; font-size: .875rem; line-height: 1.5; }
-        .home-chart-card { border-radius: 1.15rem; border: 1px solid rgba(226,232,240,.9); background: linear-gradient(180deg, #ffffff 0%, #fbfdff 100%); padding: 1rem; }
-        .home-chart-title { display: flex; align-items: center; justify-content: space-between; gap: .75rem; margin-bottom: .75rem; color: #334155; font-size: .82rem; font-weight: 800; }
-        .home-widget-icon.energy { background: #ecfdf5; color: #047857; }
-        .home-widget-icon.carbon { background: #f0f9ff; color: #0369a1; }
-        .home-widget-icon.health { background: #fff7ed; color: #c2410c; }
-        .home-run-table { width: 100%; min-width: 640px; border-collapse: separate; border-spacing: 0; }
-        .home-run-table th { padding: .75rem 1rem; color: #94a3b8; font-size: .68rem; font-weight: 800; text-align: left; text-transform: uppercase; letter-spacing: .08em; border-bottom: 1px solid #eef2f7; }
-        .home-run-table td { padding: 1rem; border-bottom: 1px solid #f1f5f9; color: #334155; font-size: .875rem; vertical-align: middle; }
-        .home-run-table tbody tr { cursor: pointer; transition: background .16s ease, transform .16s ease; }
-        .home-run-table tbody tr:hover { background: #f8fafc; }
+        @media (min-width: 1180px) { .home-kpi-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
+        .home-widget { position: relative; overflow: hidden; border-radius: 1.35rem; border: 1px solid var(--home-border); background: linear-gradient(145deg, var(--home-surface-strong), var(--home-surface)); padding: 1rem; min-height: 146px; box-shadow: var(--home-shadow-soft); transition: transform .18s ease, box-shadow .18s ease, border-color .18s ease; }
+        .home-widget::after { content: ""; position: absolute; left: 1.25rem; right: 1.25rem; bottom: 1rem; height: 3px; border-radius: 999px; background: linear-gradient(90deg, rgba(var(--home-accent-energy-rgb), .80), transparent); opacity: .72; }
+        .home-widget.carbon::after { background: linear-gradient(90deg, rgba(var(--home-accent-carbon-rgb), .86), transparent); }
+        .home-widget.health::after { background: linear-gradient(90deg, var(--home-accent-health), transparent); }
+        .home-widget.activity::after { background: linear-gradient(90deg, #64748b, transparent); }
+        .home-widget:hover { transform: translateY(-3px); border-color: var(--home-border-strong); box-shadow: var(--home-shadow); }
+        .home-widget-icon { width: 2.35rem; height: 2.35rem; display: inline-flex; align-items: center; justify-content: center; border-radius: .95rem; background: var(--home-surface-muted); color: var(--home-text-secondary); border: 1px solid var(--home-border); }
+        .home-widget-value { margin-top: 1.25rem; font-size: clamp(1.65rem, 2.2vw, 2.35rem); line-height: 1; font-weight: 900; letter-spacing: 0; color: var(--home-text); overflow-wrap: anywhere; }
+        .home-widget-label { font-size: .82rem; color: var(--home-text-secondary); font-weight: 800; letter-spacing: .08em; text-transform: uppercase; }
+        .home-widget-note { margin-top: .7rem; font-size: .78rem; line-height: 1.45; color: var(--home-text-muted); font-weight: 600; }
+        .home-health-ring { position: relative; width: 3.45rem; height: 3.45rem; border-radius: 999px; display: grid; place-items: center; background: conic-gradient(var(--home-accent-health) calc(var(--score) * 1%), rgba(148,163,184,.22) 0); box-shadow: 0 0 32px rgba(var(--home-accent-energy-rgb), .18); }
+        .home-health-ring::before { content: ""; width: 2.55rem; height: 2.55rem; border-radius: 999px; background: var(--home-surface-strong); position: absolute; }
+        .home-health-ring span { position: relative; z-index: 1; color: var(--home-text); font-size: .8rem; font-weight: 900; }
+        .home-panel { border: 1px solid var(--home-border); background: linear-gradient(145deg, var(--home-surface-strong), var(--home-surface)); border-radius: 1.6rem; box-shadow: var(--home-shadow-soft); backdrop-filter: blur(18px); }
+        .home-section-heading { display: flex; align-items: flex-end; justify-content: space-between; gap: 1rem; padding: 1rem 1.15rem 0; }
+        .home-section-title { color: var(--home-text); font-size: 1.15rem; font-weight: 850; letter-spacing: 0; }
+        .home-section-subtitle { margin-top: .25rem; color: var(--home-text-secondary); font-size: .875rem; line-height: 1.5; }
+        .home-chart-card { border-radius: 1.15rem; border: 1px solid var(--home-border); background: rgba(3, 10, 18, .20); padding: .9rem; }
+        [data-theme="light"] .home-chart-card { background: rgba(255,255,255,.55); }
+        .home-chart-title { display: flex; align-items: center; justify-content: space-between; gap: .75rem; margin-bottom: .75rem; color: var(--home-text-secondary); font-size: .82rem; font-weight: 800; }
+        .home-widget-icon.energy { background: rgba(var(--home-accent-energy-rgb), .14); color: var(--home-accent-energy); box-shadow: 0 0 24px rgba(var(--home-accent-energy-rgb), .14); }
+        .home-widget-icon.carbon { background: rgba(var(--home-accent-carbon-rgb), .13); color: var(--home-accent-carbon); box-shadow: 0 0 24px rgba(var(--home-accent-carbon-rgb), .12); }
+        .home-widget-icon.health { background: rgba(var(--home-accent-energy-rgb), .12); color: var(--home-accent-health); }
+        .home-run-list { display: grid; gap: .2rem; padding: .75rem .75rem .75rem; }
+        .home-run-row { display: grid; grid-template-columns: minmax(0, 1.5fr) .7fr .8fr .7fr 1.25rem; gap: .55rem; align-items: center; border-radius: .85rem; padding: .68rem .65rem; color: var(--home-text-secondary); text-decoration: none; transition: background .16s ease, transform .16s ease, color .16s ease; }
+        .home-run-row:hover { background: var(--home-surface-muted); transform: translateX(2px); }
+        .home-run-head { color: var(--home-text-muted); font-size: .68rem; font-weight: 850; text-transform: uppercase; letter-spacing: .08em; }
+        .home-run-id { color: var(--home-text); font-weight: 900; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
         .home-run-status { display: inline-flex; align-items: center; border-radius: 999px; padding: .25rem .55rem; font-size: .68rem; font-weight: 850; text-transform: uppercase; }
-        .home-health-pill { display: inline-flex; align-items: baseline; gap: .15rem; border-radius: 999px; background: #f8fafc; border: 1px solid #e2e8f0; padding: .35rem .6rem; font-weight: 850; color: #111827; }
-        .home-view-all { display: inline-flex; align-items: center; gap: .35rem; color: #047857; font-size: .85rem; font-weight: 800; transition: color .16s ease; }
-        .home-view-all:hover { color: #065f46; }
+        .home-run-status.success { background: rgba(var(--home-accent-energy-rgb), .13); color: var(--home-accent-energy); }
+        .home-run-status.skipped { background: rgba(245, 158, 11, .14); color: var(--home-warning); }
+        .home-run-status.cancelled { background: rgba(148, 163, 184, .14); color: var(--home-text-muted); }
+        .home-run-status.failed { background: rgba(244, 63, 94, .14); color: var(--home-critical); }
+        .home-health-pill { display: inline-flex; align-items: baseline; gap: .15rem; border-radius: 999px; background: rgba(var(--home-accent-energy-rgb), .10); border: 1px solid rgba(var(--home-accent-energy-rgb), .18); padding: .35rem .6rem; font-weight: 900; color: var(--home-accent-health); }
+        .home-view-all { display: inline-flex; align-items: center; gap: .35rem; color: var(--home-accent-energy); font-size: .85rem; font-weight: 800; transition: color .16s ease; }
+        .home-view-all:hover { color: var(--home-accent-carbon); }
+        body.home-body .home-header .text-slate-900, body.home-body .home-header .text-slate-700 { color: var(--home-text); }
+        body.home-body .home-header .text-slate-600 { color: var(--home-text-secondary); }
+        .home-widget.energy .home-widget-value { color: var(--home-accent-energy); }
+        .home-widget.carbon .home-widget-value { color: var(--home-accent-carbon); }
+        body.themed-body { background: radial-gradient(ellipse at 72% 10%, rgba(var(--home-accent-energy-rgb), .18), transparent 36%), radial-gradient(ellipse at 16% 34%, rgba(var(--home-accent-carbon-rgb), .13), transparent 30%), linear-gradient(145deg, var(--home-bg) 0%, var(--home-bg-deep) 100%); color: var(--home-text); }
+        body.themed-body::before { content: ""; position: fixed; inset: 0; pointer-events: none; background-image: linear-gradient(var(--home-grid) 1px, transparent 1px), linear-gradient(90deg, var(--home-grid) 1px, transparent 1px); background-size: 44px 44px; mask-image: linear-gradient(180deg, rgba(0,0,0,.7), transparent 72%); }
+        body.themed-body .home-header .text-slate-900, body.themed-body .home-header .text-slate-700 { color: var(--home-text); }
+        body.themed-body .home-header .text-slate-600 { color: var(--home-text-secondary); }
+        .runs-hero { position: relative; z-index: 1; display: flex; flex-direction: column; gap: .65rem; padding: 1.55rem 0 .35rem; }
+        .runs-title { color: var(--home-text); font-size: clamp(2.1rem, 4vw, 3.6rem); line-height: .96; font-weight: 900; letter-spacing: 0; }
+        .runs-subtitle { color: var(--home-text-secondary); font-size: 1rem; line-height: 1.6; font-weight: 500; }
+        .runs-panel { position: relative; z-index: 1; border: 1px solid var(--home-border); background: linear-gradient(145deg, var(--home-surface-strong), var(--home-surface)); border-radius: 1.6rem; box-shadow: var(--home-shadow-soft); backdrop-filter: blur(18px); overflow: hidden; }
+        .runs-toolbar { display: grid; grid-template-columns: minmax(0, 1fr) minmax(160px, 220px); gap: .8rem; align-items: center; padding: 1rem; border-bottom: 1px solid var(--home-border); }
+        .runs-search, .runs-filter { width: 100%; border-radius: 999px; border: 1px solid var(--home-border); background: var(--home-surface-muted); color: var(--home-text); padding: .72rem .95rem; font-size: .9rem; font-weight: 650; outline: none; transition: border-color .16s ease, box-shadow .16s ease, background .16s ease; }
+        .runs-search::placeholder { color: var(--home-text-muted); }
+        .runs-search:focus, .runs-filter:focus { border-color: var(--home-accent-carbon); box-shadow: 0 0 0 3px rgba(var(--home-accent-carbon-rgb), .18); }
+        .runs-count { color: var(--home-text-muted); font-size: .82rem; font-weight: 800; padding: 0 1rem .85rem; }
+        .runs-list { display: grid; gap: .25rem; padding: .75rem; }
+        .runs-row { display: grid; grid-template-columns: minmax(0, 1.55fr) .72fr .82fr .7fr 1.4rem; gap: .8rem; align-items: center; min-height: 68px; border: 1px solid transparent; border-radius: 1.05rem; padding: .75rem .85rem; color: var(--home-text-secondary); text-decoration: none; transition: background .16s ease, transform .16s ease, border-color .16s ease, box-shadow .16s ease; }
+        .runs-row:hover, .runs-row:focus-visible { background: var(--home-surface-muted); border-color: var(--home-border-strong); box-shadow: 0 14px 34px rgba(var(--home-accent-energy-rgb), .10); transform: translateX(2px); outline: none; }
+        .runs-head { min-height: auto; padding-block: .45rem; color: var(--home-text-muted); font-size: .68rem; font-weight: 850; text-transform: uppercase; letter-spacing: .08em; pointer-events: none; }
+        .runs-id { color: var(--home-text); font-size: .98rem; font-weight: 900; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .runs-pipeline { margin-top: .12rem; color: var(--home-text-muted); font-size: .76rem; font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .runs-status { display: inline-flex; align-items: center; gap: .35rem; width: fit-content; border-radius: 999px; padding: .33rem .58rem; font-size: .68rem; font-weight: 850; text-transform: uppercase; }
+        .runs-status.success { background: rgba(var(--home-accent-energy-rgb), .13); color: var(--home-accent-energy); }
+        .runs-status.skipped { background: rgba(245, 158, 11, .14); color: var(--home-warning); }
+        .runs-status.cancelled { background: rgba(148, 163, 184, .14); color: var(--home-text-muted); }
+        .runs-status.failed { background: rgba(244, 63, 94, .14); color: var(--home-critical); }
+        .runs-carbon { color: var(--home-accent-carbon); font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-weight: 850; }
+        .runs-health { display: inline-flex; align-items: baseline; gap: .15rem; width: fit-content; border-radius: 999px; background: rgba(var(--home-accent-energy-rgb), .10); border: 1px solid rgba(var(--home-accent-energy-rgb), .18); padding: .36rem .65rem; color: var(--home-accent-health); font-weight: 900; }
+        .runs-empty { display: none; margin: 0 .75rem .85rem; border: 1px solid var(--home-border); border-radius: 1.15rem; background: var(--home-surface-muted); padding: 1.35rem; color: var(--home-text-secondary); }
+        .runs-reset { margin-top: .85rem; display: inline-flex; align-items: center; gap: .35rem; color: var(--home-accent-energy); font-weight: 850; font-size: .85rem; }
+        .runs-reset:focus-visible { outline: 2px solid var(--home-accent-carbon); outline-offset: 3px; border-radius: .5rem; }
+        .run-hero { position: relative; z-index: 1; display: grid; grid-template-columns: minmax(0, 1.35fr) minmax(280px, .75fr); gap: 1.1rem; align-items: stretch; padding: 1.35rem 0 .15rem; }
+        .run-identity { border: 1px solid var(--home-border); background: linear-gradient(145deg, var(--home-surface-strong), var(--home-surface)); border-radius: 1.55rem; padding: 1.25rem; box-shadow: var(--home-shadow-soft); overflow: hidden; }
+        .run-title { color: var(--home-text); font-size: clamp(2rem, 3.8vw, 3.45rem); line-height: .98; font-weight: 900; letter-spacing: 0; overflow-wrap: anywhere; }
+        .run-pipeline { color: var(--home-text-secondary); font-size: .98rem; line-height: 1.55; font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .run-status { display: inline-flex; align-items: center; gap: .42rem; width: fit-content; border-radius: 999px; padding: .42rem .72rem; font-size: .72rem; font-weight: 900; text-transform: uppercase; }
+        .run-status.success { background: rgba(var(--home-accent-energy-rgb), .13); color: var(--home-accent-energy); }
+        .run-status.failed { background: rgba(244, 63, 94, .14); color: var(--home-critical); }
+        .run-timing { border: 1px solid var(--home-border); background: linear-gradient(145deg, rgba(var(--home-accent-carbon-rgb), .10), var(--home-surface)); border-radius: 1.55rem; padding: 1.1rem; box-shadow: var(--home-shadow-soft); display: grid; gap: .7rem; }
+        .run-time-item { display: flex; justify-content: space-between; gap: 1rem; border-bottom: 1px solid var(--home-border); padding-bottom: .65rem; }
+        .run-time-item:last-child { border-bottom: 0; padding-bottom: 0; }
+        .run-label { color: var(--home-text-muted); font-size: .68rem; font-weight: 850; text-transform: uppercase; letter-spacing: .08em; }
+        .run-value { color: var(--home-text); font-size: .9rem; font-weight: 850; text-align: right; overflow-wrap: anywhere; }
+        .run-health-panel { position: relative; z-index: 1; display: grid; grid-template-columns: minmax(190px, .35fr) minmax(0, 1fr); gap: 1.1rem; align-items: center; border: 1px solid var(--home-border-strong); background: linear-gradient(145deg, rgba(var(--home-accent-energy-rgb), .18), var(--home-surface-strong) 48%, var(--home-surface)); border-radius: 1.65rem; padding: 1.15rem; box-shadow: var(--home-shadow); overflow: hidden; }
+        .run-health-score { display: flex; align-items: center; gap: 1rem; }
+        .run-health-ring { position: relative; width: 6.1rem; height: 6.1rem; border-radius: 999px; display: grid; place-items: center; background: conic-gradient(var(--home-accent-health) calc(var(--score) * 1%), rgba(148,163,184,.22) 0); box-shadow: 0 0 42px rgba(var(--home-accent-energy-rgb), .22); }
+        .run-health-ring::before { content: ""; position: absolute; width: 4.55rem; height: 4.55rem; border-radius: 999px; background: var(--home-surface-strong); }
+        .run-health-ring span { position: relative; z-index: 1; color: var(--home-text); font-size: 1.5rem; line-height: 1; font-weight: 900; }
+        .run-health-grade { display: inline-flex; width: fit-content; border-radius: 999px; background: rgba(var(--home-accent-energy-rgb), .12); color: var(--home-accent-health); border: 1px solid rgba(var(--home-accent-energy-rgb), .20); padding: .35rem .65rem; font-size: .72rem; font-weight: 900; text-transform: uppercase; }
+        .run-summary-strip { position: relative; z-index: 1; display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: .75rem; }
+        .run-metric { border: 1px solid var(--home-border); background: linear-gradient(145deg, var(--home-surface-strong), var(--home-surface)); border-radius: 1.15rem; padding: .9rem; min-height: 98px; box-shadow: var(--home-shadow-soft); }
+        .run-metric-value { margin-top: .7rem; color: var(--home-text); font-size: clamp(1.15rem, 1.8vw, 1.65rem); line-height: 1.1; font-weight: 900; overflow-wrap: anywhere; }
+        .run-metric.energy .run-metric-value { color: var(--home-accent-energy); }
+        .run-metric.carbon .run-metric-value { color: var(--home-accent-carbon); }
+        .run-metric.warning .run-metric-value { color: var(--home-warning); }
+        .run-metric.critical .run-metric-value { color: var(--home-critical); }
+        .lifecycle-flow { position: relative; z-index: 1; }
+        .lifecycle-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: .9rem; }
+        .lifecycle-card { position: relative; border: 1px solid var(--home-border); background: linear-gradient(145deg, var(--home-surface-strong), var(--home-surface)); border-radius: 1.35rem; padding: 1rem; box-shadow: var(--home-shadow-soft); min-height: 178px; overflow: hidden; }
+        .lifecycle-card::after { content: ""; position: absolute; left: 1rem; right: 1rem; bottom: .85rem; height: 3px; border-radius: 999px; background: linear-gradient(90deg, rgba(var(--home-accent-energy-rgb), .78), transparent); }
+        .lifecycle-card.deploy::after { background: linear-gradient(90deg, rgba(var(--home-accent-carbon-rgb), .82), transparent); }
+        .lifecycle-card.disabled { border-style: dashed; background: var(--home-surface-muted); opacity: .82; }
+        .lifecycle-card.disabled::after { background: linear-gradient(90deg, rgba(148,163,184,.55), transparent); }
+        .lifecycle-top { display: flex; align-items: center; justify-content: space-between; gap: .8rem; }
+        .lifecycle-name { color: var(--home-text); font-size: 1.05rem; font-weight: 900; }
+        .lifecycle-status { color: var(--home-text-secondary); font-size: .72rem; font-weight: 900; text-transform: uppercase; }
+        .lifecycle-card.disabled .lifecycle-name, .lifecycle-card.disabled .lifecycle-status { color: var(--home-text-muted); }
+        .lifecycle-metrics { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .75rem; margin-top: 1rem; }
+        .lifecycle-link { margin-top: .95rem; display: inline-flex; align-items: center; gap: .4rem; color: var(--home-accent-energy); font-size: .82rem; font-weight: 900; transition: color .16s ease; }
+        .lifecycle-link:hover { color: var(--home-accent-carbon); }
+        .release-page { position: relative; z-index: 1; }
+        .release-hero { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(280px, .85fr); gap: 1rem; align-items: stretch; padding-top: 1rem; }
+        .release-panel { border: 1px solid var(--home-border); background: linear-gradient(145deg, var(--home-surface-strong), var(--home-surface)); border-radius: 1.45rem; padding: 1rem; box-shadow: var(--home-shadow-soft); backdrop-filter: blur(18px); overflow: hidden; }
+        .release-hero-main { position: relative; min-height: 188px; }
+        .release-hero-main::after { content: ""; position: absolute; right: -3rem; bottom: -4rem; width: 14rem; height: 14rem; border-radius: 999px; background: radial-gradient(circle, rgba(var(--home-accent-energy-rgb), .24), transparent 62%); pointer-events: none; }
+        .release-title { color: var(--home-text); font-size: clamp(2.45rem, 5vw, 4.25rem); line-height: .92; font-weight: 900; letter-spacing: 0; }
+        .release-subtitle { color: var(--home-text-secondary); font-size: .96rem; line-height: 1.55; font-weight: 700; overflow-wrap: anywhere; }
+        .release-chip-row { display: flex; flex-wrap: wrap; gap: .45rem; align-items: center; }
+        .release-chip { display: inline-flex; align-items: center; gap: .38rem; width: fit-content; border-radius: 999px; border: 1px solid var(--home-border); background: var(--home-surface-muted); color: var(--home-text-secondary); padding: .38rem .64rem; font-size: .7rem; font-weight: 900; text-transform: uppercase; }
+        .release-chip.success, .release-chip.applied { background: rgba(var(--home-accent-energy-rgb), .13); color: var(--home-accent-energy); border-color: rgba(var(--home-accent-energy-rgb), .22); }
+        .release-chip.skipped, .release-chip.bypassed { background: rgba(245, 158, 11, .14); color: var(--home-warning); border-color: rgba(245, 158, 11, .24); }
+        .release-chip.failed, .release-chip.critical { background: rgba(244, 63, 94, .14); color: var(--home-critical); border-color: rgba(244, 63, 94, .24); }
+        .release-split-card { display: grid; gap: .7rem; }
+        .release-fact { display: flex; align-items: center; justify-content: space-between; gap: .85rem; border-bottom: 1px solid var(--home-border); padding-bottom: .68rem; }
+        .release-fact:last-child { border-bottom: 0; padding-bottom: 0; }
+        .release-fact-value { color: var(--home-text); font-size: .95rem; font-weight: 900; text-align: right; overflow-wrap: anywhere; }
+        .release-measure-grid { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: .75rem; }
+        .release-measure { border: 1px solid var(--home-border); background: linear-gradient(145deg, var(--home-surface-strong), var(--home-surface)); border-radius: 1.1rem; padding: .85rem; min-height: 110px; box-shadow: var(--home-shadow-soft); }
+        .release-measure-top { display: flex; align-items: center; justify-content: space-between; gap: .5rem; }
+        .release-measure-icon { width: 2.1rem; height: 2.1rem; display: inline-flex; align-items: center; justify-content: center; border-radius: .78rem; border: 1px solid var(--home-border); background: var(--home-surface-muted); color: var(--home-text-secondary); }
+        .release-measure-value { margin-top: .85rem; color: var(--home-text); font-size: clamp(1.08rem, 1.7vw, 1.45rem); line-height: 1.08; font-weight: 900; overflow-wrap: anywhere; }
+        .release-measure.energy .release-measure-value { color: var(--home-accent-energy); }
+        .release-measure.carbon .release-measure-value { color: var(--home-accent-carbon); }
+        .release-measure.cpu .release-measure-value { color: var(--home-accent-carbon); }
+        .release-measure.overhead .release-measure-value { color: var(--home-warning); }
+        .release-two-col { display: grid; grid-template-columns: minmax(0, 1fr) minmax(320px, .82fr); gap: .9rem; align-items: stretch; }
+        .release-decision-primary { display: grid; grid-template-columns: minmax(140px, .55fr) minmax(0, 1fr); gap: .9rem; align-items: stretch; }
+        .release-probability { min-height: 170px; display: grid; place-items: center; border: 1px solid rgba(var(--home-accent-energy-rgb), .25); background: radial-gradient(circle at 50% 38%, rgba(var(--home-accent-energy-rgb), .18), transparent 60%), var(--home-surface-muted); border-radius: 1.2rem; text-align: center; }
+        .release-probability-value { color: var(--home-accent-energy); font-size: clamp(2.2rem, 4vw, 3.35rem); line-height: 1; font-weight: 900; }
+        .release-decision-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .65rem; }
+        .release-mini { border: 1px solid var(--home-border); background: var(--home-surface-muted); border-radius: 1rem; padding: .78rem; min-height: 86px; }
+        .release-mini-value { margin-top: .45rem; color: var(--home-text); font-size: .98rem; line-height: 1.25; font-weight: 900; overflow-wrap: anywhere; }
+        .release-work-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: .65rem; }
+        .release-flow { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: .55rem; margin-top: .75rem; }
+        .release-step { border: 1px solid var(--home-border); background: var(--home-surface-muted); border-radius: .95rem; padding: .72rem; }
+        .release-alert { border: 1px solid rgba(245, 158, 11, .28); background: rgba(245, 158, 11, .11); color: var(--home-warning); border-radius: 1rem; padding: .85rem; font-size: .86rem; font-weight: 800; }
+        .release-intel-head { border: 1px solid var(--home-border-strong); background: linear-gradient(145deg, rgba(var(--home-accent-carbon-rgb), .13), rgba(var(--home-accent-energy-rgb), .10), var(--home-surface)); border-radius: 1.25rem; padding: 1rem; }
+        .release-intel-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: .8rem; }
+        .release-intel-card { border: 1px solid var(--home-border); background: linear-gradient(145deg, var(--home-surface-strong), var(--home-surface)); border-radius: 1.15rem; padding: .9rem; min-height: 210px; box-shadow: var(--home-shadow-soft); }
+        .release-anomaly-item { border: 1px solid var(--home-border); background: var(--home-surface-muted); border-radius: .95rem; padding: .75rem; }
+        .release-muted { color: var(--home-text-muted); }
+        .release-text { color: var(--home-text-secondary); }
+        .release-strong { color: var(--home-text); }
+        .deploy-page { position: relative; z-index: 1; }
+        .deploy-hero { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(280px, .85fr); gap: 1rem; align-items: stretch; padding-top: 1rem; }
+        .deploy-panel { border: 1px solid var(--home-border); background: linear-gradient(145deg, var(--home-surface-strong), var(--home-surface)); border-radius: 1.45rem; padding: 1rem; box-shadow: var(--home-shadow-soft); backdrop-filter: blur(18px); overflow: hidden; }
+        .deploy-hero-main { position: relative; min-height: 188px; }
+        .deploy-hero-main::after { content: ""; position: absolute; right: -3rem; bottom: -4rem; width: 14rem; height: 14rem; border-radius: 999px; background: radial-gradient(circle, rgba(var(--home-accent-carbon-rgb), .24), transparent 62%); pointer-events: none; }
+        .deploy-title { color: var(--home-text); font-size: clamp(2.45rem, 5vw, 4.25rem); line-height: .92; font-weight: 900; letter-spacing: 0; }
+        .deploy-subtitle { color: var(--home-text-secondary); font-size: .96rem; line-height: 1.55; font-weight: 700; overflow-wrap: anywhere; }
+        .deploy-chip-row { display: flex; flex-wrap: wrap; gap: .45rem; align-items: center; }
+        .deploy-chip { display: inline-flex; align-items: center; gap: .38rem; width: fit-content; border-radius: 999px; border: 1px solid var(--home-border); background: var(--home-surface-muted); color: var(--home-text-secondary); padding: .38rem .64rem; font-size: .7rem; font-weight: 900; text-transform: uppercase; }
+        .deploy-chip.success { background: rgba(var(--home-accent-energy-rgb), .13); color: var(--home-accent-energy); border-color: rgba(var(--home-accent-energy-rgb), .22); }
+        .deploy-chip.skipped { background: rgba(245, 158, 11, .14); color: var(--home-warning); border-color: rgba(245, 158, 11, .24); }
+        .deploy-chip.failed, .deploy-chip.critical { background: rgba(244, 63, 94, .14); color: var(--home-critical); border-color: rgba(244, 63, 94, .24); }
+        .deploy-chip.carbon { background: rgba(var(--home-accent-carbon-rgb), .13); color: var(--home-accent-carbon); border-color: rgba(var(--home-accent-carbon-rgb), .22); }
+        .deploy-fact { display: flex; align-items: center; justify-content: space-between; gap: .85rem; border-bottom: 1px solid var(--home-border); padding-bottom: .68rem; }
+        .deploy-fact:last-child { border-bottom: 0; padding-bottom: 0; }
+        .deploy-fact-value { color: var(--home-text); font-size: .95rem; font-weight: 900; text-align: right; overflow-wrap: anywhere; }
+        .deploy-measure-grid { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: .7rem; }
+        .deploy-measure { border: 1px solid var(--home-border); background: linear-gradient(145deg, var(--home-surface-strong), var(--home-surface)); border-radius: 1.05rem; padding: .78rem; min-height: 108px; box-shadow: var(--home-shadow-soft); }
+        .deploy-measure-top { display: flex; align-items: center; justify-content: space-between; gap: .5rem; }
+        .deploy-measure-icon { width: 2rem; height: 2rem; display: inline-flex; align-items: center; justify-content: center; border-radius: .75rem; border: 1px solid var(--home-border); background: var(--home-surface-muted); color: var(--home-text-secondary); }
+        .deploy-measure-value { margin-top: .75rem; color: var(--home-text); font-size: clamp(1rem, 1.55vw, 1.32rem); line-height: 1.08; font-weight: 900; overflow-wrap: anywhere; }
+        .deploy-measure.energy .deploy-measure-value { color: var(--home-accent-energy); }
+        .deploy-measure.carbon .deploy-measure-value { color: var(--home-accent-carbon); }
+        .deploy-measure.cpu .deploy-measure-value, .deploy-measure.memory .deploy-measure-value { color: var(--home-accent-carbon); }
+        .deploy-measure.overhead .deploy-measure-value { color: var(--home-warning); }
+        .deploy-two-col { display: grid; grid-template-columns: minmax(0, 1fr) minmax(320px, .9fr); gap: .9rem; align-items: stretch; }
+        .deploy-strategy-value { color: var(--home-accent-carbon); font-size: clamp(2rem, 3.4vw, 3rem); line-height: .98; font-weight: 900; overflow-wrap: anywhere; }
+        .deploy-mini-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .65rem; }
+        .deploy-mini { border: 1px solid var(--home-border); background: var(--home-surface-muted); border-radius: 1rem; padding: .78rem; min-height: 86px; }
+        .deploy-mini-value { margin-top: .45rem; color: var(--home-text); font-size: .98rem; line-height: 1.25; font-weight: 900; overflow-wrap: anywhere; }
+        .deploy-resource-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .65rem; margin-top: .75rem; }
+        .deploy-bar-track { height: .46rem; border-radius: 999px; background: rgba(148, 163, 184, .20); overflow: hidden; margin-top: .65rem; }
+        .deploy-bar-fill { height: 100%; border-radius: inherit; background: linear-gradient(90deg, var(--home-accent-carbon), var(--home-accent-energy)); }
+        .deploy-timeline { display: grid; gap: .7rem; }
+        .deploy-event { display: grid; grid-template-columns: 2rem minmax(0, 1fr); gap: .65rem; align-items: start; }
+        .deploy-dot { width: .85rem; height: .85rem; border-radius: 999px; background: var(--home-accent-carbon); box-shadow: 0 0 0 5px rgba(var(--home-accent-carbon-rgb), .13); margin: .25rem auto 0; }
+        .deploy-event-body { border: 1px solid var(--home-border); background: var(--home-surface-muted); border-radius: 1rem; padding: .75rem; }
+        .deploy-snapshot-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .55rem; margin-top: .55rem; }
+        .deploy-alert { border: 1px solid rgba(245, 158, 11, .28); background: rgba(245, 158, 11, .11); color: var(--home-warning); border-radius: 1rem; padding: .85rem; font-size: .86rem; font-weight: 800; }
+        .deploy-intel-head { border: 1px solid var(--home-border-strong); background: linear-gradient(145deg, rgba(var(--home-accent-carbon-rgb), .16), rgba(var(--home-accent-energy-rgb), .08), var(--home-surface)); border-radius: 1.25rem; padding: 1rem; }
+        .deploy-intel-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: .8rem; }
+        .deploy-intel-card { border: 1px solid var(--home-border); background: linear-gradient(145deg, var(--home-surface-strong), var(--home-surface)); border-radius: 1.15rem; padding: .9rem; min-height: 210px; box-shadow: var(--home-shadow-soft); }
+        .deploy-anomaly-item { border: 1px solid var(--home-border); background: var(--home-surface-muted); border-radius: .95rem; padding: .75rem; }
         @media (max-width: 767px) {
             .home-hero { padding-top: 2rem; }
             .home-section-heading { align-items: flex-start; flex-direction: column; }
+            .home-run-row { grid-template-columns: minmax(0, 1.4fr) .78fr .82fr .72fr 1rem; gap: .45rem; padding: .85rem .55rem; }
+            .home-run-head { font-size: .6rem; }
+            .home-run-row { font-size: .78rem; }
+            .home-run-status { font-size: .58rem; padding: .22rem .42rem; }
+            .runs-toolbar { grid-template-columns: 1fr; }
+            .runs-row { grid-template-columns: minmax(0, 1fr) auto; gap: .55rem; min-height: 78px; }
+            .runs-head { display: none; }
+            .runs-row > :nth-child(2), .runs-row > :nth-child(3), .runs-row > :nth-child(4) { grid-column: auto; }
+            .runs-row > :last-child { grid-column: 2; grid-row: 1 / span 2; }
+            .runs-id, .runs-pipeline { max-width: 100%; }
+            .run-hero, .run-health-panel, .run-summary-strip, .lifecycle-grid { grid-template-columns: 1fr; }
+            .run-pipeline { white-space: normal; }
+            .release-hero, .release-measure-grid, .release-two-col, .release-decision-primary, .release-decision-grid, .release-work-grid, .release-flow, .release-intel-grid, .deploy-hero, .deploy-measure-grid, .deploy-two-col, .deploy-mini-grid, .deploy-resource-grid, .deploy-snapshot-grid, .deploy-intel-grid { grid-template-columns: 1fr; }
+        }
+        @media (min-width: 768px) and (max-width: 1179px) {
+            .run-summary-strip { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+            .lifecycle-grid { grid-template-columns: 1fr; }
+            .release-measure-grid, .release-intel-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+            .release-two-col { grid-template-columns: 1fr; }
+            .deploy-measure-grid, .deploy-intel-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+            .deploy-two-col { grid-template-columns: 1fr; }
         }
     </style>
 </head>
-<body class="p-4 md:p-8 {% if page == 'home' %}home-body{% endif %}">
-    <div class="{% if page == 'home' %}home-shell{% else %}max-w-[1500px] mx-auto{% endif %} space-y-6">
-        <header class="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4 {% if page == 'home' %}home-header{% endif %}">
+{% set release_stage_page = page == 'stage' and stage_detail is defined and stage_detail.key == 'release' %}
+{% set deploy_stage_page = page == 'stage' and stage_detail is defined and stage_detail.key == 'deploy' %}
+{% set themed_page = page == 'home' or page == 'runs' or page == 'run' or release_stage_page or deploy_stage_page %}
+<body class="p-4 md:p-8 {% if page == 'home' %}home-body themed-body{% elif themed_page %}themed-body{% endif %}">
+    <div class="{% if themed_page %}home-shell{% else %}max-w-[1500px] mx-auto{% endif %} space-y-6">
+        <header class="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4 {% if themed_page %}home-header{% endif %}">
             <a href="/" class="flex items-center gap-3">
-                <span class="{% if page == 'home' %}home-brand-mark{% else %}p-2 bg-emerald-100 rounded-lg{% endif %}"><i data-lucide="leaf" class="{% if page == 'home' %}w-5 h-5{% else %}w-8 h-8 text-emerald-600{% endif %}"></i></span>
+                <span class="{% if themed_page %}home-brand-mark{% else %}p-2 bg-emerald-100 rounded-lg{% endif %}"><i data-lucide="leaf" class="{% if themed_page %}w-5 h-5{% else %}w-8 h-8 text-emerald-600{% endif %}"></i></span>
                 <span>
-                    <span class="block {% if page == 'home' %}text-base font-black{% else %}text-3xl font-extrabold tracking-tight{% endif %} text-slate-900">Green DevOps Monitor</span>
-                    <span class="block {% if page == 'home' %}text-xs{% else %}text-sm{% endif %} text-slate-600 font-medium">Centralized sustainability intelligence for Release, Deploy, and Operate</span>
+                    <span class="block {% if themed_page %}text-base font-black{% else %}text-3xl font-extrabold tracking-tight{% endif %} text-slate-900">{% if themed_page %}Green DevOps{% else %}Green DevOps Monitor{% endif %}</span>
+                    <span class="block {% if themed_page %}text-xs{% else %}text-sm{% endif %} text-slate-600 font-medium">{% if themed_page %}Sustainability intelligence across the software delivery lifecycle{% else %}Centralized sustainability intelligence for Release, Deploy, and Operate{% endif %}</span>
                 </span>
             </a>
             <div class="flex flex-wrap items-center gap-2">
-                <a href="/" class="{% if page == 'home' %}home-nav-link active{% else %}rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50{% endif %}"><i data-lucide="house" class="{% if page == 'home' %}w-4 h-4{% else %}hidden{% endif %}"></i>Home</a>
-                <a href="/runs" class="{% if page == 'home' %}home-nav-link{% else %}rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50{% endif %}"><i data-lucide="list" class="{% if page == 'home' %}w-4 h-4{% else %}hidden{% endif %}"></i>Runs</a>
-                <div class="{% if page == 'home' %}home-source-chip{% else %}console-chip rounded-xl px-4 py-2 flex items-center gap-2{% endif %}">
+                <a href="/" class="{% if page == 'home' %}home-nav-link active{% elif themed_page %}home-nav-link{% else %}rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50{% endif %}"><i data-lucide="house" class="{% if themed_page %}w-4 h-4{% else %}hidden{% endif %}"></i>Home</a>
+                <a href="/runs" class="{% if page == 'runs' or page == 'run' or release_stage_page or deploy_stage_page %}home-nav-link active{% elif themed_page %}home-nav-link{% else %}rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50{% endif %}"><i data-lucide="list" class="{% if themed_page %}w-4 h-4{% else %}hidden{% endif %}"></i>Runs</a>
+                {% if release_stage_page or deploy_stage_page %}<a href="/run/{{ selected_run|urlencode }}" class="home-nav-link"><i data-lucide="arrow-left" class="w-4 h-4"></i>Back to Run</a>{% endif %}
+                {% if themed_page %}
+                <div class="theme-toggle" role="group" aria-label="Color theme">
+                    <button type="button" class="theme-light" data-theme-choice="light" aria-label="Use light theme"><i data-lucide="sun" class="w-4 h-4"></i></button>
+                    <button type="button" class="theme-dark" data-theme-choice="dark" aria-label="Use dark theme"><i data-lucide="moon" class="w-4 h-4"></i></button>
+                </div>
+                {% endif %}
+                <div class="{% if themed_page %}home-source-chip{% else %}console-chip rounded-xl px-4 py-2 flex items-center gap-2{% endif %}">
                     <span class="status-pulse bg-emerald-500"></span>
                     <span class="text-sm font-semibold text-slate-700">{{ data_source }}</span>
                 </div>
@@ -2790,38 +3059,47 @@ APP_HTML = """
         </header>
 
         {% if page == 'home' %}
-        <main class="space-y-8">
+        <main class="space-y-6">
             <section class="home-hero">
-                <p class="home-eyebrow">System Overview</p>
-                <h1 class="home-title">Green DevOps Monitor</h1>
-                <p class="home-subtitle">A calm operating view of pipeline sustainability, energy use, carbon impact, and recent delivery activity across monitored runs.</p>
+                <div>
+                    <p class="home-eyebrow">System Overview</p>
+                    <h1 class="home-title">Green DevOps <span>Pipeline sustainability, made visible.</span></h1>
+                    <p class="home-subtitle">A command center for energy use, carbon impact, health scoring, and recent delivery activity across monitored DevOps runs.</p>
+                </div>
+                <div class="home-signal" aria-hidden="true">
+                    <div class="home-signal-wave"></div>
+                    <span class="home-signal-node one"></span>
+                    <span class="home-signal-node two"></span>
+                    <span class="home-signal-node three"></span>
+                    <div class="home-signal-caption"><span>Release</span><span>Deploy</span><span>Operate</span></div>
+                </div>
             </section>
             <section class="home-kpi-grid">
-                <div class="home-widget">
+                <div class="home-widget energy">
                     <div class="flex items-start justify-between gap-4">
                         <p class="home-widget-label">Total Energy</p>
                         <span class="home-widget-icon energy"><i data-lucide="zap" class="w-5 h-5"></i></span>
                     </div>
-                    <p class="home-widget-value text-emerald-700">{{ system_total_energy_display }}</p>
+                    <p class="home-widget-value">{{ system_total_energy_display }}</p>
                     <p class="home-widget-note">Accumulated Monitor energy across all recorded pipeline runs.</p>
                 </div>
-                <div class="home-widget">
+                <div class="home-widget carbon">
                     <div class="flex items-start justify-between gap-4">
                         <p class="home-widget-label">Total Carbon</p>
                         <span class="home-widget-icon carbon"><i data-lucide="cloud" class="w-5 h-5"></i></span>
                     </div>
-                    <p class="home-widget-value text-sky-700">{{ system_total_carbon_display }}</p>
+                    <p class="home-widget-value">{{ system_total_carbon_display }}</p>
                     <p class="home-widget-note">Total carbon footprint reported from Monitor measurements.</p>
                 </div>
-                <div class="home-widget">
+                <div class="home-widget health">
                     <div class="flex items-start justify-between gap-4">
                         <p class="home-widget-label">Average Health</p>
-                        <span class="home-widget-icon health"><i data-lucide="heart-pulse" class="w-5 h-5"></i></span>
+                        <div class="home-health-ring" style="--score: {{ average_health_score }};"><span>{{ average_health_score }}</span></div>
                     </div>
                     <p class="home-widget-value">{{ average_health_score }}<span class="text-base font-bold text-slate-400">/100</span></p>
                     <p class="home-widget-note">Average sustainability health score across completed runs.</p>
                 </div>
-                <div class="home-widget">
+                <div class="home-widget activity">
                     <div class="flex items-start justify-between gap-4">
                         <p class="home-widget-label">Pipeline Runs</p>
                         <span class="home-widget-icon text-slate-700"><i data-lucide="workflow" class="w-5 h-5"></i></span>
@@ -2830,26 +3108,26 @@ APP_HTML = """
                     <p class="home-widget-note">Runs currently available in the Monitor data source.</p>
                 </div>
             </section>
-            <section class="grid grid-cols-1 xl:grid-cols-5 gap-6">
-                <div class="xl:col-span-3 home-panel">
+            <section class="grid grid-cols-1 xl:grid-cols-[1.55fr_1fr] gap-5">
+                <div class="home-panel">
                     <div class="home-section-heading">
                         <div>
                             <h2 class="home-section-title">Overall Sustainability Trends</h2>
                             <p class="home-section-subtitle">Energy and carbon movement across the latest monitored runs.</p>
                         </div>
                     </div>
-                    <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 p-5">
+                    <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 p-4">
                         <div class="home-chart-card">
                             <div class="home-chart-title"><span>Energy trend</span><span class="text-emerald-700">kWh</span></div>
-                            <div class="h-[260px]"><canvas id="runEnergyChart"></canvas></div>
+                            <div class="h-[220px]"><canvas id="runEnergyChart"></canvas></div>
                         </div>
                         <div class="home-chart-card">
                             <div class="home-chart-title"><span>Carbon trend</span><span class="text-sky-700">kg CO2e</span></div>
-                            <div class="h-[260px]"><canvas id="runCarbonChart"></canvas></div>
+                            <div class="h-[220px]"><canvas id="runCarbonChart"></canvas></div>
                         </div>
                     </div>
                 </div>
-                <div class="xl:col-span-2 home-panel overflow-hidden">
+                <div class="home-panel overflow-hidden">
                     <div class="home-section-heading">
                         <div>
                             <h2 class="home-section-title">Recent Pipeline Runs</h2>
@@ -2857,139 +3135,162 @@ APP_HTML = """
                         </div>
                         <a href="/runs" class="home-view-all">View all runs <i data-lucide="chevron-right" class="w-4 h-4"></i></a>
                     </div>
-                    <div class="overflow-x-auto px-3 pb-3 pt-4">
-                        <table class="home-run-table">
-                            <thead>
-                                <tr>
-                                    <th>Run</th>
-                                    <th>Status</th>
-                                    <th>Duration</th>
-                                    <th>Energy</th>
-                                    <th>Carbon</th>
-                                    <th>Health</th>
-                                    <th></th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                {% for run in recent_runs %}
-                                <tr onclick="window.location.href='/run/{{ run.run_id|urlencode }}'">
-                                    <td><span class="font-black text-slate-900">#{{ run.run_id }}</span></td>
-                                    <td><span class="home-run-status {% if run.status == 'success' %}bg-emerald-50 text-emerald-700{% else %}bg-rose-50 text-rose-700{% endif %}">{{ run.status }}</span></td>
-                                    <td>{{ run.duration_display }}</td>
-                                    <td><span class="font-mono text-emerald-700">{{ run.total_energy_display }}</span></td>
-                                    <td><span class="font-mono text-sky-700">{{ run.total_carbon_display }}</span></td>
-                                    <td><span class="home-health-pill">{{ run.health_score }}<span class="text-xs text-slate-400">/100</span></span></td>
-                                    <td class="text-right"><i data-lucide="arrow-right" class="w-4 h-4 text-slate-400"></i></td>
-                                </tr>
-                                {% endfor %}
-                            </tbody>
-                        </table>
+                    <div class="home-run-list">
+                        <div class="home-run-row home-run-head">
+                            <span>Run</span><span>Status</span><span>Carbon</span><span>Health</span><span></span>
+                        </div>
+                        {% for run in recent_runs %}
+                        <a href="/run/{{ run.run_id|urlencode }}" class="home-run-row">
+                            <span class="home-run-id">#{{ run.run_id }}</span>
+                            <span><span class="home-run-status {% if run.status == 'success' %}success{% elif run.status == 'skipped' %}skipped{% elif run.status in ['aborted', 'cancelled', 'canceled'] %}cancelled{% else %}failed{% endif %}">{{ run.status }}</span></span>
+                            <span class="font-mono text-[var(--home-accent-carbon)]">{{ run.total_carbon_display }}</span>
+                            <span><span class="home-health-pill">{{ run.health_score }}<span class="text-xs opacity-60">/100</span></span></span>
+                            <span class="flex justify-end"><i data-lucide="arrow-right" class="w-4 h-4 text-[var(--home-text-muted)]"></i></span>
+                        </a>
+                        {% endfor %}
                     </div>
                 </div>
             </section>
         </main>
         {% elif page == 'runs' %}
         <main class="space-y-6">
-            <div>
-                <a href="/" class="text-sm font-semibold text-emerald-700 hover:text-emerald-800">&larr; Home</a>
-                <h1 class="text-3xl font-extrabold text-slate-900 mt-3">Pipeline runs</h1>
-                <p class="text-sm text-slate-600 mt-1">Historical pipeline executions from the existing Monitor data source.</p>
-            </div>
-            <section class="panel overflow-hidden">
-                <div class="overflow-x-auto">
-                    <table class="w-full text-left">
-                        <thead><tr class="text-[11px] uppercase tracking-wider text-slate-500 bg-slate-50">
-                            <th class="px-5 py-4">Run ID</th><th class="px-5 py-4">Status</th><th class="px-5 py-4">Start</th><th class="px-5 py-4">End</th><th class="px-5 py-4">Duration</th><th class="px-5 py-4">Energy</th><th class="px-5 py-4">Carbon</th><th class="px-5 py-4">Health</th><th class="px-5 py-4">Alerts</th><th class="px-5 py-4 text-right">Action</th>
-                        </tr></thead>
-                        <tbody class="divide-y divide-slate-200">
-                            {% for run in runs %}
-                            <tr>
-                                <td class="px-5 py-4 font-bold text-slate-800">#{{ run.run_id }}</td>
-                                <td class="px-5 py-4"><span class="text-[10px] px-2 py-1 rounded-full font-bold uppercase {% if run.status == 'success' %}bg-emerald-100 text-emerald-700{% else %}bg-rose-100 text-rose-700{% endif %}">{{ run.status }}</span></td>
-                                <td class="px-5 py-4 text-sm text-slate-600">{{ run.start_time_display }}</td>
-                                <td class="px-5 py-4 text-sm text-slate-600">{{ run.end_time_display }}</td>
-                                <td class="px-5 py-4 text-sm text-slate-700">{{ run.duration_display }}</td>
-                                <td class="px-5 py-4 text-sm font-mono text-emerald-700">{{ run.total_energy_display }}</td>
-                                <td class="px-5 py-4 text-sm font-mono text-sky-700">{{ run.total_carbon_display }}</td>
-                                <td class="px-5 py-4 text-sm font-bold text-slate-800">{{ run.health_score }}/100</td>
-                                <td class="px-5 py-4 text-sm text-slate-700">{{ run.alert_count }}</td>
-                                <td class="px-5 py-4 text-right"><a href="/run/{{ run.run_id|urlencode }}" class="inline-flex rounded-lg bg-emerald-600 px-3 py-2 text-xs font-bold text-white hover:bg-emerald-700">View</a></td>
-                            </tr>
-                            {% endfor %}
-                        </tbody>
-                    </table>
+            <section class="runs-hero">
+                <a href="/" class="home-view-all w-fit"><i data-lucide="arrow-left" class="w-4 h-4"></i> Home</a>
+                <div>
+                    <p class="home-eyebrow">Run Browser</p>
+                    <h1 class="runs-title">Pipeline Runs</h1>
+                    <p class="runs-subtitle">Browse and inspect monitored pipeline executions.</p>
+                </div>
+            </section>
+            <section class="runs-panel">
+                <div class="runs-toolbar">
+                    <label class="sr-only" for="runsSearch">Search pipeline or run ID</label>
+                    <input id="runsSearch" class="runs-search" type="search" placeholder="Search pipeline or run ID..." autocomplete="off">
+                    <label class="sr-only" for="runsStatusFilter">Filter by status</label>
+                    <select id="runsStatusFilter" class="runs-filter" aria-label="Filter by status">
+                        <option value="all">All statuses</option>
+                    </select>
+                </div>
+                <p id="runsCount" class="runs-count">{{ runs|length }} pipeline runs</p>
+                <div class="runs-list" id="runsList">
+                    <div class="runs-row runs-head">
+                        <span>Run</span><span>Status</span><span>Carbon</span><span>Health</span><span></span>
+                    </div>
+                    {% for run in runs %}
+                    <a href="/run/{{ run.run_id|urlencode }}" class="runs-row" data-run-row data-run-id="{{ run.run_id }}" data-pipeline-name="{{ run.pipeline_name_display }}" data-status="{{ run.status }}" title="{{ run.run_id }}">
+                        <span>
+                            <span class="runs-id">#{{ run.run_id }}</span>
+                            {% if run.pipeline_name_display and run.pipeline_name_display != run.run_id %}
+                            <span class="runs-pipeline">{{ run.pipeline_name_display }}</span>
+                            {% endif %}
+                        </span>
+                        <span><span class="runs-status {% if run.status == 'success' %}success{% elif run.status == 'skipped' %}skipped{% elif run.status in ['aborted', 'cancelled', 'canceled'] %}cancelled{% else %}failed{% endif %}"><i data-lucide="{% if run.status == 'success' %}check-circle-2{% elif run.status == 'skipped' %}pause-circle{% elif run.status in ['aborted', 'cancelled', 'canceled'] %}circle-slash{% else %}alert-triangle{% endif %}" class="w-3 h-3"></i>{{ run.status }}</span></span>
+                        <span class="runs-carbon">{{ run.total_carbon_display }}</span>
+                        <span><span class="runs-health">{{ run.health_score }}<span class="text-xs opacity-60">/100</span></span></span>
+                        <span class="flex justify-end"><i data-lucide="arrow-right" class="w-4 h-4 text-[var(--home-text-muted)]"></i></span>
+                    </a>
+                    {% endfor %}
+                </div>
+                <div id="runsEmpty" class="runs-empty">
+                    <div class="flex gap-3">
+                        <span class="home-widget-icon"><i data-lucide="search-x" class="w-5 h-5"></i></span>
+                        <div>
+                            <p class="font-black text-[var(--home-text)]">No matching pipeline runs</p>
+                            <p class="text-sm mt-1">Adjust the search or status filter to show available monitored executions.</p>
+                            <button type="button" id="runsReset" class="runs-reset">Reset filters <i data-lucide="rotate-ccw" class="w-4 h-4"></i></button>
+                        </div>
+                    </div>
                 </div>
             </section>
         </main>
         {% elif page == 'run' %}
-        <main class="space-y-6">
-            <div>
-                <a href="/runs" class="text-sm font-semibold text-emerald-700 hover:text-emerald-800">&larr; Back to Runs</a>
-                <div class="flex flex-col md:flex-row md:items-start md:justify-between gap-3 mt-3">
-                    <div><p class="text-xs font-bold uppercase tracking-[0.2em] text-emerald-600">Run Overview</p><h1 class="text-3xl font-extrabold text-slate-900 mt-1">Run #{{ selected_run }}</h1><p class="text-sm text-slate-600 mt-1">{{ pipeline_name }}</p></div>
-                    <span class="self-start text-xs px-3 py-1 rounded-full font-bold uppercase {% if selected_run_status == 'success' %}bg-emerald-100 text-emerald-700{% else %}bg-rose-100 text-rose-700{% endif %}">{{ selected_run_status }}</span>
+        <main class="space-y-5">
+            <section class="run-hero">
+                <div class="run-identity">
+                    <a href="/runs" class="home-view-all w-fit"><i data-lucide="arrow-left" class="w-4 h-4"></i> Pipeline Runs</a>
+                    <div class="mt-4 flex flex-wrap items-center gap-2">
+                        <p class="home-eyebrow">Pipeline Run</p>
+                        <span class="run-status {% if selected_run_status == 'success' %}success{% else %}failed{% endif %}"><i data-lucide="{% if selected_run_status == 'success' %}check-circle-2{% else %}alert-triangle{% endif %}" class="w-4 h-4"></i>{{ selected_run_status }}</span>
+                    </div>
+                    <h1 class="run-title mt-3">Run #{{ selected_run }}</h1>
+                    <p class="run-pipeline mt-3" title="{{ pipeline_name }}">{{ pipeline_name }}</p>
+                    <p class="home-widget-note mt-4">One complete pipeline execution tracked across the Green DevOps lifecycle.</p>
                 </div>
-            </div>
-            <section class="panel p-6">
-                <div class="section-title mb-5"><span class="section-icon"><i data-lucide="layout-dashboard" class="w-5 h-5"></i></span><div><h2 class="text-lg font-extrabold text-slate-900">Pipeline Summary</h2><p class="text-sm text-slate-500">Monitor measurements for the selected pipeline run.</p></div></div>
-                <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-5">
-                    <div><p class="text-xs font-bold uppercase text-slate-500">Start Time</p><p class="text-sm font-semibold text-slate-800 mt-1">{{ selected_run_start }}</p></div>
-                    <div><p class="text-xs font-bold uppercase text-slate-500">End Time</p><p class="text-sm font-semibold text-slate-800 mt-1">{{ selected_run_end }}</p></div>
-                    <div><p class="text-xs font-bold uppercase text-slate-500">Duration</p><p class="text-xl font-black text-slate-900 mt-1">{{ selected_run_duration_display }}</p></div>
-                    <div><p class="text-xs font-bold uppercase text-slate-500">Pipeline Status</p><p class="text-xl font-black text-slate-900 mt-1">{{ selected_run_status|title }}</p></div>
-                    <div><p class="text-xs font-bold uppercase text-slate-500">Total Energy</p><p class="text-xl font-black text-emerald-600 mt-1">{{ total_energy_display }}</p></div>
-                    <div><p class="text-xs font-bold uppercase text-slate-500">Total Carbon</p><p class="text-xl font-black text-sky-600 mt-1">{{ total_carbon_display }}</p></div>
-                    <div><p class="text-xs font-bold uppercase text-slate-500">Warnings</p><p class="text-xl font-black text-amber-600 mt-1">{{ anomaly_summary.warning_count }}</p></div>
-                    <div><p class="text-xs font-bold uppercase text-slate-500">Critical</p><p class="text-xl font-black text-rose-600 mt-1">{{ anomaly_summary.critical_count }}</p></div>
+                <div class="run-timing">
+                    <div class="run-time-item"><p class="run-label">Start</p><p class="run-value">{{ selected_run_start }}</p></div>
+                    <div class="run-time-item"><p class="run-label">End</p><p class="run-value">{{ selected_run_end }}</p></div>
+                    <div class="run-time-item"><p class="run-label">Duration</p><p class="run-value">{{ selected_run_duration_display }}</p></div>
                 </div>
             </section>
-            <section class="panel p-6">
-                <div class="section-title"><span class="section-icon"><i data-lucide="shield-check" class="w-5 h-5"></i></span><div><h2 class="text-lg font-extrabold text-slate-900">Pipeline Sustainability Health</h2><p class="text-sm text-slate-500">Calculated across the complete pipeline run.</p></div></div>
-                <div class="mt-5 rounded-2xl border border-emerald-200 bg-gradient-to-br from-emerald-50 to-white p-5">
-                    <div class="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-5">
-                        <div>
-                            <p class="text-xs font-black uppercase tracking-[0.18em] text-emerald-700">Whole Pipeline Health</p>
-                            <p class="text-5xl font-black text-slate-950 mt-3">{{ health_score.score }}<span class="text-lg text-slate-500">/100</span></p>
-                            <div class="flex flex-wrap items-center gap-2 mt-3">
-                                <span class="rounded-full bg-emerald-100 px-3 py-1 text-xs font-black uppercase text-emerald-700">{{ health_score.grade }}</span>
-                                <span class="rounded-full px-3 py-1 text-xs font-black uppercase {% if health_score.status == 'Critical' %}status-failed{% elif health_score.status == 'Warning' %}status-skipped{% else %}status-success{% endif %}">{{ health_score.status }}</span>
-                            </div>
-                        </div>
-                        <div class="max-w-2xl">
-                            <p class="text-sm font-extrabold text-slate-900">Run-level sustainability signal</p>
-                            <p class="text-sm text-slate-600 mt-2">{{ health_explanation_display }}</p>
+
+            <section class="run-health-panel">
+                <div class="run-health-score">
+                    <div class="run-health-ring" style="--score: {{ health_score.score }};"><span>{{ health_score.score }}</span></div>
+                    <div>
+                        <p class="home-eyebrow">Whole Pipeline Health</p>
+                        <h2 class="text-2xl font-black mt-2 text-[var(--home-text)]">Pipeline Sustainability Health</h2>
+                        <div class="flex flex-wrap items-center gap-2 mt-3">
+                            <span class="run-health-grade">{{ health_score.grade }}</span>
+                            <span class="runs-status {% if health_score.status == 'Critical' %}failed{% elif health_score.status == 'Warning' %}skipped{% else %}success{% endif %}">{{ health_score.status }}</span>
                         </div>
                     </div>
                 </div>
+                <div>
+                    <p class="run-label">Calculated across the complete pipeline run</p>
+                    <p class="mt-3 text-sm md:text-base leading-7 text-[var(--home-text-secondary)]">{{ health_explanation_display }}</p>
+                </div>
             </section>
-            <section class="space-y-4">
-                <div><p class="text-xs font-bold uppercase tracking-[0.2em] text-emerald-600">Select a Stage</p><h2 class="text-2xl font-extrabold text-slate-900 mt-1">Release | Deploy | Operate</h2></div>
-                <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+
+            <section class="lifecycle-flow">
+                <div class="home-section-heading">
+                    <div>
+                        <p class="home-eyebrow">Pipeline Summary</p>
+                        <h2>Whole-run sustainability metrics</h2>
+                    </div>
+                </div>
+                <div class="run-summary-strip mt-3">
+                    <div class="run-metric"><p class="run-label">Duration</p><p class="run-metric-value">{{ selected_run_duration_display }}</p></div>
+                    <div class="run-metric energy"><p class="run-label">Total Energy</p><p class="run-metric-value">{{ total_energy_display }}</p></div>
+                    <div class="run-metric carbon"><p class="run-label">Total Carbon</p><p class="run-metric-value">{{ total_carbon_display }}</p></div>
+                    <div class="run-metric warning"><p class="run-label">Warnings</p><p class="run-metric-value">{{ anomaly_summary.warning_count }}</p></div>
+                    <div class="run-metric critical"><p class="run-label">Critical</p><p class="run-metric-value">{{ anomaly_summary.critical_count }}</p></div>
+                </div>
+            </section>
+
+            <section class="lifecycle-flow">
+                <div class="home-section-heading">
+                    <div>
+                        <p class="home-eyebrow">Lifecycle Components</p>
+                        <h2>Release - Deploy - Operate</h2>
+                    </div>
+                    <p>Open a component for detailed Monitor intelligence. Overview cards stay focused on status, energy, carbon, and availability.</p>
+                </div>
+                <div class="lifecycle-grid mt-3">
                     {% for stage in lifecycle_sections %}
                     {% if stage.key == 'operate' %}
-                    <div class="panel p-5 border-dashed border-slate-300 bg-slate-50/80">
-                        <div class="flex items-center justify-between">
-                            <div class="flex items-center gap-2"><i data-lucide="{{ stage.icon }}" class="w-5 h-5 text-slate-400"></i><h3 class="font-extrabold text-slate-500">{{ stage.label }}</h3></div>
-                            <span class="rounded-full bg-slate-200 px-3 py-1 text-[11px] font-black uppercase text-slate-600">Coming Soon</span>
+                    <div class="lifecycle-card disabled">
+                        <div class="lifecycle-top">
+                            <div class="flex items-center gap-2"><i data-lucide="{{ stage.icon }}" class="w-5 h-5 text-[var(--home-text-muted)]"></i><h3 class="lifecycle-name">{{ stage.label }}</h3></div>
+                            <span class="lifecycle-status">Coming Soon</span>
                         </div>
-                        <div class="grid grid-cols-2 gap-3 mt-4 text-sm">
-                            <div><p class="text-xs uppercase font-bold text-slate-500">Energy</p><p class="font-bold text-slate-500">Not available</p></div>
-                            <div><p class="text-xs uppercase font-bold text-slate-500">Carbon</p><p class="font-bold text-slate-500">Not available</p></div>
+                        <div class="lifecycle-metrics">
+                            <div><p class="run-label">Energy</p><p class="run-value text-left">Not available</p></div>
+                            <div><p class="run-label">Carbon</p><p class="run-value text-left">Not available</p></div>
                         </div>
-                        <p class="text-xs text-slate-500 mt-4">Operate component integration is not implemented for PP2.</p>
+                        <p class="home-widget-note mt-4">Operate component integration is not implemented for PP2.</p>
                     </div>
                     {% else %}
-                    <div class="panel p-5">
-                        <div class="flex items-center justify-between">
-                            <div class="flex items-center gap-2"><i data-lucide="{{ stage.icon }}" class="w-5 h-5 text-emerald-600"></i><h3 class="font-extrabold text-slate-900">{{ stage.label }}</h3></div>
-                            <span class="text-xs font-semibold {% if stage.skipped %}text-amber-700{% else %}text-slate-500{% endif %}">{{ stage.summary_status }}</span>
+                    <div class="lifecycle-card {{ stage.key }}">
+                        <div class="lifecycle-top">
+                            <div class="flex items-center gap-2"><i data-lucide="{{ stage.icon }}" class="w-5 h-5 text-[var(--home-accent-energy)]"></i><h3 class="lifecycle-name">{{ stage.label }}</h3></div>
+                            <span class="lifecycle-status" style="color: {% if stage.skipped %}var(--home-warning){% elif stage.summary_status == 'Failed' %}var(--home-critical){% else %}var(--home-text-secondary){% endif %};">{{ stage.summary_status }}</span>
                         </div>
-                        <div class="grid grid-cols-2 gap-3 mt-4 text-sm">
-                            <div><p class="text-xs uppercase font-bold text-slate-500">Energy</p><p class="font-bold text-slate-800">{{ stage.energy_display }}</p></div>
-                            <div><p class="text-xs uppercase font-bold text-slate-500">Carbon</p><p class="font-bold text-slate-800">{{ stage.carbon_display }}</p></div>
+                        <div class="lifecycle-metrics">
+                            <div><p class="run-label">Energy</p><p class="run-value text-left">{{ stage.energy_display }}</p></div>
+                            <div><p class="run-label">Carbon</p><p class="run-value text-left">{{ stage.carbon_display }}</p></div>
                         </div>
-                        {% if stage.skipped and stage.skip_reason_display %}<p class="text-xs text-amber-700 font-semibold mt-4">Reason: {{ stage.skip_reason_display }}</p>{% endif %}
-                        <a href="/run/{{ selected_run|urlencode }}/{{ stage.key }}" class="mt-5 inline-flex items-center gap-2 rounded-lg bg-emerald-600 px-3 py-2 text-xs font-bold text-white hover:bg-emerald-700">View Stage <i data-lucide="arrow-right" class="w-3 h-3"></i></a>
+                        {% if stage.skipped and stage.skip_reason_display %}<p class="home-widget-note mt-4">Reason: {{ stage.skip_reason_display }}</p>{% endif %}
+                        <a href="/run/{{ selected_run|urlencode }}/{{ stage.key }}" class="lifecycle-link">View Stage <i data-lucide="arrow-right" class="w-4 h-4"></i></a>
                     </div>
                     {% endif %}
                     {% endfor %}
@@ -2998,232 +3299,532 @@ APP_HTML = """
         </main>
         {% elif page == 'stage' %}
         <main class="space-y-6">
-            <section class="stage-hero">
-                <div class="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-5">
-                    <div>
-                        <a href="/run/{{ selected_run|urlencode }}" class="inline-flex items-center gap-2 text-sm font-bold text-emerald-700 hover:text-emerald-800">&larr; Back to Run #{{ selected_run }}</a>
-                        <p class="text-xs font-bold uppercase tracking-[0.2em] text-emerald-600 mt-5">Stage Detail</p>
-                        <h1 class="text-4xl md:text-5xl font-black text-slate-950 mt-1">{{ stage_detail.label }}</h1>
-                        <p class="text-sm md:text-base text-slate-600 mt-2 max-w-2xl">{{ stage_detail.note }}</p>
-                    </div>
-                    <div class="flex items-center gap-3 rounded-2xl border border-emerald-200 bg-white/80 px-4 py-3">
-                        <span class="p-3 rounded-xl bg-emerald-100 text-emerald-700"><i data-lucide="{{ stage_detail.icon }}" class="w-6 h-6"></i></span>
-                        <div>
-                            <p class="text-xs font-bold uppercase tracking-wider text-slate-500">Pipeline</p>
-                            <p class="text-sm font-extrabold text-slate-900">{{ pipeline_name }}</p>
-                        </div>
-                    </div>
-                </div>
-            </section>
-            <section class="panel p-6">
-                <div class="section-title"><span class="section-icon"><i data-lucide="gauge" class="w-5 h-5"></i></span><div><h2 class="text-lg font-extrabold text-slate-900">Stage execution information</h2><p class="text-sm text-slate-500">Monitor execution metrics for this lifecycle stage.</p></div></div>
-                {% if stage_detail.key == 'deploy' and stage_detail.rows %}
-                <div class="deploy-kpi-grid mt-5">
-                    {% for row in stage_detail.rows %}
-                    {% if (row.skipped or row.status_display in ['ABORTED', 'CANCELLED', 'CANCELED']) and row.skip_reason_display %}
-                    <div class="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-semibold text-amber-800 md:col-span-3 xl:col-span-5">Reason: {{ row.skip_reason_display }}</div>
-                    {% endif %}
-                    <div class="kpi-card">
-                        <span class="kpi-icon bg-emerald-100 text-emerald-700"><i data-lucide="{% if row.status_display == 'SUCCESS' %}check-circle-2{% elif row.status_display == 'SKIPPED' %}pause-circle{% elif row.status_display in ['ABORTED', 'CANCELLED', 'CANCELED'] %}circle-slash{% else %}alert-triangle{% endif %}" class="w-5 h-5"></i></span>
-                        <div><p class="kpi-label">Status</p><span class="mt-2 inline-flex rounded-full px-3 py-1 text-xs font-black uppercase {% if row.status_display == 'SUCCESS' %}status-success{% elif row.status_display == 'SKIPPED' %}status-skipped{% elif row.status_display in ['ABORTED', 'CANCELLED', 'CANCELED'] %}status-cancelled{% else %}status-failed{% endif %}">{{ row.status_display }}</span></div>
-                    </div>
-                    <div class="kpi-card"><span class="kpi-icon bg-slate-100 text-slate-700"><i data-lucide="clock-3" class="w-5 h-5"></i></span><div><p class="kpi-label">Workload</p><p class="kpi-value mt-2">{{ row.workload_duration_display }}</p></div></div>
-                    <div class="kpi-card"><span class="kpi-icon bg-cyan-100 text-cyan-700"><i data-lucide="cpu" class="w-5 h-5"></i></span><div><p class="kpi-label">Avg CPU</p><p class="kpi-value mt-2 text-cyan-800">{{ row.avg_cpu_display }}</p></div></div>
-                    <div class="kpi-card"><span class="kpi-icon bg-amber-100 text-amber-700"><i data-lucide="zap" class="w-5 h-5"></i></span><div><p class="kpi-label">Energy</p><p class="kpi-value mt-2 text-emerald-700">{{ row.total_energy_display }}</p></div></div>
-                    <div class="kpi-card"><span class="kpi-icon bg-emerald-100 text-emerald-700"><i data-lucide="leaf" class="w-5 h-5"></i></span><div><p class="kpi-label">Carbon</p><p class="kpi-value mt-2 text-sky-700">{{ row.total_carbon_display }}</p></div></div>
-                    {% endfor %}
-                </div>
-                {% elif stage_detail.rows %}
-                <div class="overflow-x-auto mt-4"><table class="w-full text-left"><thead><tr class="text-[11px] uppercase tracking-wider text-slate-500 bg-slate-50"><th class="px-4 py-3">Monitor Stage</th><th class="px-4 py-3">Status</th><th class="px-4 py-3">Reason</th><th class="px-4 py-3">Workload</th><th class="px-4 py-3">Full Duration</th><th class="px-4 py-3">Overhead</th><th class="px-4 py-3">CPU</th><th class="px-4 py-3">Energy</th><th class="px-4 py-3">Carbon</th></tr></thead><tbody class="divide-y divide-slate-200">{% for row in stage_detail.rows %}<tr><td class="px-4 py-3 font-bold">{{ row.stage_label }}</td><td class="px-4 py-3 font-bold {% if row.skipped %}text-amber-700{% else %}text-slate-700{% endif %}">{{ row.status_display }}</td><td class="px-4 py-3 text-sm text-slate-600">{{ row.skip_reason_display if row.skipped else '' }}</td><td class="px-4 py-3">{{ row.workload_duration_display }}</td><td class="px-4 py-3">{{ row.full_duration_display }}</td><td class="px-4 py-3">{{ row.overhead_percentage_display }}</td><td class="px-4 py-3">{{ row.avg_cpu_display }}</td><td class="px-4 py-3 font-mono text-emerald-700">{{ row.total_energy_display }}</td><td class="px-4 py-3 font-mono text-sky-700">{{ row.total_carbon_display }}</td></tr>{% endfor %}</tbody></table></div>
-                {% elif stage_detail.key == 'deploy' %}
-                <p class="text-sm text-slate-500 mt-3">Monitor Deploy data unavailable for this run.</p>
-                {% else %}<p class="text-sm text-slate-500 mt-3">Awaiting integrated Monitor data.</p>{% endif %}
-            </section>
-            <section class="panel p-6">
-                {% if stage_detail.key == 'release' %}
-                <div class="section-title"><span class="section-icon"><i data-lucide="package-check" class="w-5 h-5"></i></span><div><h2 class="text-lg font-extrabold text-slate-900">Release execution information</h2><p class="text-sm text-slate-500">Release API decision context for this lifecycle stage.</p></div></div>
-                {% if stage_detail.release_data %}
-                <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4 mt-5">
-                    <div class="detail-card"><p class="fact-label">Release Status</p><span class="mt-2 inline-flex rounded-full px-3 py-1 text-xs font-black uppercase {% if stage_detail.release_data.status_display == 'SUCCESS' %}status-success{% elif stage_detail.release_data.status_display in ['ABORTED', 'CANCELLED', 'CANCELED'] %}status-cancelled{% elif stage_detail.release_data.status_display == 'Not available' %}bg-slate-100 text-slate-600{% else %}status-failed{% endif %}">{{ stage_detail.release_data.status_display }}</span></div>
-                    <div class="detail-card"><p class="fact-label">Execution Mode</p><p class="fact-value mt-2">{{ stage_detail.release_data.execution_mode_display }}</p></div>
-                    <div class="detail-card"><p class="fact-label">Optimization Status</p><p class="fact-value mt-2">{{ stage_detail.release_data.optimization_status_display }}</p></div>
-                    <div class="detail-card"><p class="fact-label">Pipeline Type</p><p class="fact-value mt-2">{{ stage_detail.release_data.pipeline_type_display }}</p></div>
-                    <div class="detail-card"><p class="fact-label">Green Probability</p><p class="text-2xl font-black text-emerald-700 mt-2">{{ stage_detail.release_data.green_probability_display }}</p></div>
-                    <div class="detail-card"><p class="fact-label">Scheduling Action</p><p class="fact-value mt-2">{{ stage_detail.release_data.scheduling_action_display }}</p></div>
-                    <div class="detail-card"><p class="fact-label">Scheduling Engine</p><p class="fact-value mt-2">{{ stage_detail.release_data.scheduling_engine_display }}</p></div>
-                    <div class="detail-card"><p class="fact-label">Release Carbon Intensity</p><p class="fact-value mt-2">{{ stage_detail.release_data.carbon_intensity_display }}</p></div>
-                    <div class="detail-card"><p class="fact-label">Tests Executed</p><p class="fact-value mt-2">{{ stage_detail.release_data.tests_executed_display }}</p></div>
-                    <div class="detail-card"><p class="fact-label">Tests Skipped</p><p class="fact-value mt-2">{{ stage_detail.release_data.tests_skipped_display }}</p></div>
-                    <div class="detail-card md:col-span-2"><p class="fact-label">Affected Modules</p><p class="fact-value mt-2">{{ stage_detail.release_data.affected_modules_display }}</p></div>
-                    <div class="detail-card md:col-span-2"><p class="fact-label">Release Durations</p><p class="text-sm font-semibold text-slate-700 mt-2">Build {{ stage_detail.release_data.build_duration_display }} | Test {{ stage_detail.release_data.test_duration_display }} | Deploy {{ stage_detail.release_data.deploy_duration_display }} | Total {{ stage_detail.release_data.total_duration_display }}</p></div>
-                    <div class="detail-card md:col-span-2"><p class="fact-label">Decision Context</p><p class="text-sm font-semibold text-slate-700 mt-2">{{ stage_detail.release_data.context_note }}</p></div>
-                </div>
-                {% else %}
-                <p class="mt-5 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-semibold text-slate-600">Release data unavailable for this run. Monitor measurements and Release anomaly intelligence remain available.</p>
-                {% endif %}
-                {% elif stage_detail.key == 'deploy' %}
-                <div class="section-title"><span class="section-icon"><i data-lucide="rocket" class="w-5 h-5"></i></span><div><h2 class="text-lg font-extrabold text-slate-900">Deploy execution information</h2><p class="text-sm text-slate-500">Deployment metadata and execution context.</p></div></div>
-                {% if stage_detail.skipped %}
-                <p class="mt-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-semibold text-amber-800">Deploy component data is not applied because this Monitor Deploy lifecycle was skipped.</p>
-                {% elif stage_detail.deploy_data %}
-                <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 mt-5">
-                    <div class="detail-card">
-                        <div class="flex items-center justify-between gap-3">
-                            <p class="text-sm font-extrabold text-slate-800">Deployment facts</p>
-                            <span class="rounded-full px-3 py-1 text-[11px] font-black uppercase {% if stage_detail.deploy_data.status_display == 'SUCCESS' %}status-success{% elif stage_detail.deploy_data.status_display in ['ABORTED', 'CANCELLED', 'CANCELED'] %}status-cancelled{% elif stage_detail.deploy_data.status_display == 'Not available' %}bg-slate-100 text-slate-600{% else %}status-failed{% endif %}">{{ stage_detail.deploy_data.status_display }}</span>
-                        </div>
-                        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-4">
-                            <div><p class="fact-label">Strategy</p><p class="fact-value inline-flex items-center gap-2"><i data-lucide="git-branch" class="w-4 h-4 text-slate-500"></i>{{ stage_detail.deploy_data.strategy_display }}</p></div>
-                            {% if stage_detail.deploy_data.canary_weight_display != 'Not available' %}
-                            <div><p class="fact-label">Canary Weight</p><p class="fact-value"><span class="rounded-full bg-amber-100 px-2 py-1 text-xs text-amber-800">{{ stage_detail.deploy_data.canary_weight_display }}</span></p></div>
+            {% if stage_detail.key == 'release' %}
+            {% set release_row = stage_detail.rows[0] if stage_detail.rows else none %}
+            <section class="release-page space-y-5">
+                <section class="release-hero">
+                    <div class="release-panel release-hero-main">
+                        <a href="/run/{{ selected_run|urlencode }}" class="home-view-all w-fit"><i data-lucide="arrow-left" class="w-4 h-4"></i> Back to Run #{{ selected_run }}</a>
+                        <div class="release-chip-row mt-4">
+                            <span class="release-chip"><i data-lucide="package-check" class="w-4 h-4"></i>Release Lifecycle</span>
+                            {% if stage_detail.skipped %}
+                            <span class="release-chip skipped"><i data-lucide="pause-circle" class="w-4 h-4"></i>Skipped</span>
+                            {% elif release_row %}
+                            <span class="release-chip {% if release_row.status_display == 'SUCCESS' %}success{% elif release_row.status_display in ['ABORTED', 'CANCELLED', 'CANCELED'] %}{% else %}failed{% endif %}"><i data-lucide="{% if release_row.status_display == 'SUCCESS' %}check-circle-2{% elif release_row.status_display in ['ABORTED', 'CANCELLED', 'CANCELED'] %}circle-slash{% else %}alert-triangle{% endif %}" class="w-4 h-4"></i>{{ release_row.status_display }}</span>
+                            {% else %}
+                            <span class="release-chip"><i data-lucide="circle-help" class="w-4 h-4"></i>Monitor unavailable</span>
                             {% endif %}
-                            <div><p class="fact-label">Carbon Profile</p><p class="fact-value inline-flex items-center gap-2"><i data-lucide="sprout" class="w-4 h-4 text-emerald-600"></i>{{ stage_detail.deploy_data.carbon_profile_display }}</p></div>
-                            <div><p class="fact-label">Deploy Duration</p><p class="fact-value inline-flex items-center gap-2"><i data-lucide="timer" class="w-4 h-4 text-sky-600"></i>{{ stage_detail.deploy_data.duration_display }}</p></div>
-                            <div><p class="fact-label">Profiler Samples</p><p class="fact-value inline-flex items-center gap-2"><i data-lucide="list-checks" class="w-4 h-4 text-slate-500"></i>{{ stage_detail.deploy_data.samples_collected_display }}</p></div>
-                            <div class="sm:col-span-2"><p class="fact-label">Image</p><p class="code-pill mt-2">{{ stage_detail.deploy_data.image_display }}</p></div>
+                            {% if stage_detail.release_data %}
+                            <span class="release-chip {% if stage_detail.release_data.optimization_status_display == 'Bypassed' %}bypassed{% elif stage_detail.release_data.optimization_status_display == 'Applied' %}applied{% endif %}"><i data-lucide="route" class="w-4 h-4"></i>Optimization {{ stage_detail.release_data.optimization_status_display }}</span>
+                            {% endif %}
                         </div>
+                        <h1 class="release-title mt-4">Release</h1>
+                        <p class="release-subtitle mt-3">Run #{{ selected_run }} - {{ pipeline_name }}</p>
+                        {% if stage_detail.skipped and stage_detail.skip_reason_display %}
+                        <div class="release-alert mt-4"><i data-lucide="pause-circle" class="inline w-4 h-4 mr-1"></i>Release skipped: {{ stage_detail.skip_reason_display }}</div>
+                        {% elif stage_detail.release_data and stage_detail.release_data.optimization_status_display == 'Bypassed' %}
+                        <div class="release-alert mt-4"><i data-lucide="git-compare-arrows" class="inline w-4 h-4 mr-1"></i>Release executed as a full build while optimization was bypassed.</div>
+                        {% endif %}
                     </div>
-                    {% if stage_detail.deploy_data.start_time_display != 'Not available' and stage_detail.deploy_data.end_time_display != 'Not available' %}
-                    <div class="detail-card">
-                        <p class="text-sm font-extrabold text-slate-800">Deployment timeline</p>
-                        <div class="mt-5">
-                            <div class="flex gap-3"><span class="mt-1 h-3.5 w-3.5 rounded-full bg-emerald-500 ring-4 ring-emerald-100"></span><div><p class="fact-label">Deployment started</p><p class="text-sm font-semibold text-slate-800 mt-1">{{ stage_detail.deploy_data.start_time_display }}</p></div></div>
-                            <div class="timeline-line my-2"></div>
-                            <div class="flex gap-3"><span class="mt-1 h-3.5 w-3.5 rounded-full bg-sky-500 ring-4 ring-sky-100"></span><div><p class="fact-label">Deployment completed</p><p class="text-sm font-semibold text-slate-800 mt-1">{{ stage_detail.deploy_data.end_time_display }}</p></div></div>
+                    <div class="release-panel release-split-card">
+                        <div class="release-fact"><div><p class="run-label">Release Status</p><p class="home-widget-note">Monitor lifecycle result</p></div><p class="release-fact-value">{{ release_row.status_display if release_row else stage_detail.summary_status }}</p></div>
+                        <div class="release-fact"><div><p class="run-label">Execution Mode</p><p class="home-widget-note">Release component context</p></div><p class="release-fact-value">{{ stage_detail.release_data.execution_mode_display if stage_detail.release_data else 'Not available' }}</p></div>
+                        <div class="release-fact"><div><p class="run-label">Optimization</p><p class="home-widget-note">Decision outcome</p></div><p class="release-fact-value">{{ stage_detail.release_data.optimization_status_display if stage_detail.release_data else 'Not available' }}</p></div>
+                    </div>
+                </section>
+
+                <section class="lifecycle-flow">
+                    <div class="home-section-heading">
+                        <div>
+                            <p class="home-eyebrow">Monitor Sustainability</p>
+                            <h2>Measured Release cost</h2>
                         </div>
+                        <p>MONITOR MEASURED what happened and what the Release lifecycle consumed.</p>
                     </div>
-                    {% endif %}
-                </div>
-                {% if stage_detail.deploy_data.snapshots_display %}
-                <div class="overflow-x-auto mt-4">
-                    <table class="w-full text-left">
-                        <thead><tr class="text-[11px] uppercase tracking-wider text-slate-500 bg-slate-50"><th class="px-4 py-3">Phase</th><th class="px-4 py-3">Strategy</th><th class="px-4 py-3">Multiplier</th><th class="px-4 py-3">Downtime</th><th class="px-4 py-3">Canary</th><th class="px-4 py-3">Note</th><th class="px-4 py-3">Snapshot Time</th></tr></thead>
-                        <tbody class="divide-y divide-slate-200">{% for snapshot in stage_detail.deploy_data.snapshots_display %}<tr><td class="px-4 py-3 text-sm text-slate-700">{{ snapshot.phase }}</td><td class="px-4 py-3 text-sm text-slate-700">{{ snapshot.strategy }}</td><td class="px-4 py-3 text-sm text-slate-700">{{ snapshot.infra_multiplier }}</td><td class="px-4 py-3 text-sm text-slate-700">{{ snapshot.downtime_seconds }}</td><td class="px-4 py-3 text-sm text-slate-700">{{ snapshot.canary_weight }}</td><td class="px-4 py-3 text-sm text-slate-700">{{ snapshot.note }}</td><td class="px-4 py-3 text-sm text-slate-700">{{ snapshot.snapshot_timestamp }}</td></tr>{% endfor %}</tbody>
-                    </table>
-                </div>
-                {% endif %}
-                {% else %}
-                <p class="text-sm text-slate-500 mt-2">Deploy component data unavailable for this run.</p>
-                {% endif %}
-                {% else %}
-                <div class="section-title"><span class="section-icon"><i data-lucide="activity" class="w-5 h-5"></i></span><div><h2 class="text-lg font-extrabold text-slate-900">Component-specific information</h2><p class="text-sm text-slate-500">Lifecycle component context.</p></div></div>
-                <p class="text-sm text-slate-500 mt-2">Component-specific results will be displayed here after integration.</p>
-                {% endif %}
-            </section>
-            {% if stage_detail.key == 'deploy' and stage_detail.rows and not stage_detail.skipped %}
-            <section class="panel p-6">
-                <div class="section-title"><span class="section-icon"><i data-lucide="bar-chart-3" class="w-5 h-5"></i></span><div><h2 class="text-lg font-extrabold text-slate-900">Resource utilization</h2><p class="text-sm text-slate-500">Monitor-observed resource usage.</p></div></div>
-                <div class="grid grid-cols-1 lg:grid-cols-2 gap-5 mt-5">
+                    {% if stage_detail.rows %}
                     {% for row in stage_detail.rows %}
-                    <div class="detail-card">
-                        <div class="flex items-center justify-between gap-3">
-                            <div class="flex items-center gap-3"><span class="kpi-icon bg-cyan-100 text-cyan-700"><i data-lucide="cpu" class="w-5 h-5"></i></span><p class="text-sm font-extrabold text-slate-800">Average CPU</p></div>
-                            <p class="text-lg font-black text-cyan-700">{{ row.avg_cpu_display }}</p>
-                        </div>
-                        <div class="metric-bar-track mt-4"><div class="metric-bar-fill cpu" style="width: {{ row.avg_cpu_bar_width }}%;"></div></div>
-                    </div>
-                    <div class="detail-card">
-                        <div class="flex items-center justify-between gap-3">
-                            <div class="flex items-center gap-3"><span class="kpi-icon bg-emerald-100 text-emerald-700"><i data-lucide="memory-stick" class="w-5 h-5"></i></span><p class="text-sm font-extrabold text-slate-800">Average Memory</p></div>
-                            <p class="text-lg font-black text-emerald-700">{{ row.avg_memory_display }}</p>
-                        </div>
-                        <div class="metric-bar-track mt-4"><div class="metric-bar-fill memory" style="width: {{ row.avg_memory_bar_width }}%;"></div></div>
+                    <div class="release-measure-grid mt-3">
+                        <div class="release-measure"><div class="release-measure-top"><p class="run-label">Duration</p><span class="release-measure-icon"><i data-lucide="timer" class="w-4 h-4"></i></span></div><p class="release-measure-value">{{ row.workload_duration_display }}</p><p class="home-widget-note">Workload time</p></div>
+                        <div class="release-measure energy"><div class="release-measure-top"><p class="run-label">Energy</p><span class="release-measure-icon"><i data-lucide="zap" class="w-4 h-4"></i></span></div><p class="release-measure-value">{{ row.total_energy_display }}</p><p class="home-widget-note">Monitor total</p></div>
+                        <div class="release-measure carbon"><div class="release-measure-top"><p class="run-label">Carbon</p><span class="release-measure-icon"><i data-lucide="leaf" class="w-4 h-4"></i></span></div><p class="release-measure-value">{{ row.total_carbon_display }}</p><p class="home-widget-note">Monitor total</p></div>
+                        <div class="release-measure cpu"><div class="release-measure-top"><p class="run-label">CPU</p><span class="release-measure-icon"><i data-lucide="cpu" class="w-4 h-4"></i></span></div><p class="release-measure-value">{{ row.avg_cpu_display }}</p><p class="home-widget-note">Average utilization</p></div>
+                        <div class="release-measure overhead"><div class="release-measure-top"><p class="run-label">Overhead</p><span class="release-measure-icon"><i data-lucide="activity" class="w-4 h-4"></i></span></div><p class="release-measure-value">{{ row.overhead_percentage_display }}</p><p class="home-widget-note">Jenkins timing gap</p></div>
                     </div>
                     {% endfor %}
-                </div>
-            </section>
-            {% endif %}
-            {% if stage_detail.key != 'deploy' %}
-            <section class="panel p-6">
-                <h2 class="text-lg font-extrabold text-slate-900">Monitor sustainability information</h2>
-                {% if stage_detail.rows %}<div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4 mt-4">{% for row in stage_detail.rows %}<div class="rounded-xl border border-slate-200 p-4"><p class="text-sm font-bold text-slate-800">Monitor data</p>{% if row.skipped %}<p class="text-xs text-amber-700 font-semibold mt-2">Skipped</p><p class="text-xs text-slate-500">Reason: {{ row.skip_reason_display }}</p><p class="text-xs text-slate-500">Energy: Not applicable</p><p class="text-xs text-slate-500">Carbon: Not applicable</p>{% else %}<p class="text-xs text-slate-500 mt-2">Peak CPU: {{ row.peak_cpu_display }}</p><p class="text-xs text-slate-500">Carbon intensity: {{ row.carbon_intensity_display }}</p><p class="text-xs text-slate-500">Infrastructure overhead: {{ row.overhead_percentage_display }}</p>{% endif %}</div>{% endfor %}</div>{% else %}<p class="text-sm text-slate-500 mt-3">Awaiting integrated Monitor data.</p>{% endif %}
-            </section>
-            {% endif %}
-            <section class="panel p-6">
-                <div class="section-title"><span class="section-icon"><i data-lucide="brain-circuit" class="w-5 h-5"></i></span><div><h2 class="text-lg font-extrabold text-slate-900">{{ stage_detail.label }} Anomaly Intelligence</h2><p class="text-sm text-slate-500">Analysis for this {{ stage_detail.label }} stage.</p></div></div>
-                <div class="mt-5 rounded-2xl border border-slate-200 bg-slate-950 p-5 text-white">
-                    <div class="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
-                        <div>
-                            <p class="text-xs font-black uppercase tracking-[0.18em] text-emerald-300">Current stage anomaly state</p>
-                            <p class="text-3xl font-black mt-2 {% if stage_detail.anomaly_summary.overall_status == 'Critical' %}text-rose-300{% elif stage_detail.anomaly_summary.overall_status == 'Warning' %}text-amber-300{% else %}text-emerald-300{% endif %}">{{ stage_detail.anomaly_summary.overall_status }}</p>
-                        </div>
-                        <div class="grid grid-cols-2 gap-3 text-right">
-                            <div class="rounded-xl bg-white/8 px-4 py-3"><p class="text-xs uppercase font-bold text-slate-400">Warnings</p><p class="text-2xl font-black text-amber-300">{{ stage_detail.anomaly_summary.warning_count }}</p></div>
-                            <div class="rounded-xl bg-white/8 px-4 py-3"><p class="text-xs uppercase font-bold text-slate-400">Critical</p><p class="text-2xl font-black text-rose-300">{{ stage_detail.anomaly_summary.critical_count }}</p></div>
-                        </div>
-                    </div>
-                </div>
-                <div class="grid grid-cols-1 xl:grid-cols-2 gap-4 mt-4">
-                    <div class="detail-card xl:col-span-1">
-                        <div class="flex items-center justify-between gap-3"><p class="text-sm font-extrabold text-slate-800">Statistical Detection</p><span class="kpi-icon bg-amber-100 text-amber-700"><i data-lucide="scan-search" class="w-5 h-5"></i></span></div>
-                        {% if stage_detail.statistical_alerts %}
-                        <div class="mt-4 space-y-3">
-                            {% for alert in stage_detail.statistical_alerts %}
-                            <div class="rounded-xl border border-slate-200 bg-white px-4 py-3">
-                                <div class="flex items-center justify-between gap-3"><span class="text-xs font-black uppercase {{ alert.severity_badge_class }}">{{ alert.severity_label }}</span><span class="text-xs font-bold text-slate-500">{{ alert.percentage_change_display }} vs baseline</span></div>
-                                <p class="text-sm font-semibold text-slate-800 mt-2">{{ alert.message }}</p>
-                                <p class="text-xs text-slate-500 mt-1">{{ alert.metric_label }}: {{ alert.current_display }} vs {{ alert.baseline_display }} · {{ alert.context_scope_display }} · {{ alert.historical_samples_display }} runs</p>
-                                {% if alert.fallback_reason %}<p class="text-xs text-amber-700 mt-1">{{ alert.fallback_reason }}</p>{% endif %}
+                    {% else %}
+                    <div class="release-panel mt-3"><p class="release-text font-bold">Awaiting integrated Monitor data.</p></div>
+                    {% endif %}
+                </section>
+
+                <section class="release-two-col">
+                    <div class="release-panel">
+                        <div class="home-section-heading !p-0">
+                            <div>
+                                <p class="home-eyebrow">Release Decision</p>
+                                <h2>Decision context returned by the Release component</h2>
                             </div>
-                            {% endfor %}
+                            <p>RELEASE DECISION explains why this lifecycle ran the way it did.</p>
                         </div>
-                        {% else %}<span class="mt-4 inline-flex rounded-full bg-emerald-100 px-3 py-1 text-xs font-black uppercase text-emerald-700">Normal</span><p class="text-sm text-slate-500 mt-3">No warning or critical statistical anomalies for the selected stage data.</p>{% endif %}
-                    </div>
-                    <div class="detail-card xl:col-span-1">
-                        <div class="flex items-center justify-between gap-3"><p class="text-sm font-extrabold text-slate-800">{{ stage_detail.label }} Isolation Forest</p><span class="kpi-icon bg-sky-100 text-sky-700"><i data-lucide="network" class="w-5 h-5"></i></span></div>
-                        {% if stage_detail.ml_results %}
-                        <div class="mt-4 space-y-3">
-                            {% for item in stage_detail.ml_results %}
-                            <div class="rounded-xl border border-slate-200 bg-white px-4 py-3">
-                                <div class="flex flex-wrap items-center gap-2"><span class="rounded-full px-3 py-1 text-xs font-black uppercase {% if item.prediction == 'Anomaly' %}status-failed{% elif item.prediction == 'Warming Up' %}status-skipped{% else %}status-success{% endif %}">{{ item.prediction }}</span><span class="rounded-full bg-slate-100 px-3 py-1 text-xs font-bold text-slate-600">{{ item.model_status }}</span></div>
-                                <p class="text-sm font-semibold text-slate-800 mt-3">{{ item.message }}</p>
-                                <div class="grid grid-cols-2 gap-3 mt-3 text-xs text-slate-600">
-                                    <div><span class="font-black text-slate-500 uppercase">Stage</span><br>{{ item.stage_label }}</div>
-                                    <div><span class="font-black text-slate-500 uppercase">Strategy</span><br>{{ item.strategy_display }}</div>
-                                    <div><span class="font-black text-slate-500 uppercase">Context</span><br>{{ item.context_scope_display }}</div>
-                                    <div><span class="font-black text-slate-500 uppercase">Samples</span><br>{{ item.historical_samples_display }}</div>
-                                    <div><span class="font-black text-slate-500 uppercase">Score</span><br>{{ item.anomaly_score_display }}</div>
-                                    <div><span class="font-black text-slate-500 uppercase">Strategy-specific</span><br>{{ 'Yes' if item.strategy_specific else 'No' }}</div>
+                        {% if stage_detail.release_data %}
+                        <div class="release-decision-primary mt-4">
+                            <div class="release-probability">
+                                <div>
+                                    <p class="run-label">Green Probability</p>
+                                    <p class="release-probability-value mt-2">{{ stage_detail.release_data.green_probability_display }}</p>
                                 </div>
-                                {% if item.fallback_reason %}<p class="text-xs text-amber-700 mt-3">{{ item.fallback_reason }}</p>{% endif %}
                             </div>
-                            {% endfor %}
+                            <div class="release-decision-grid">
+                                <div class="release-mini"><p class="run-label">Scheduling Action</p><p class="release-mini-value">{{ stage_detail.release_data.scheduling_action_display }}</p></div>
+                                <div class="release-mini"><p class="run-label">Optimization Status</p><p class="release-mini-value {% if stage_detail.release_data.optimization_status_display == 'Bypassed' %}text-[var(--home-warning)]{% elif stage_detail.release_data.optimization_status_display == 'Applied' %}text-[var(--home-accent-energy)]{% endif %}">{{ stage_detail.release_data.optimization_status_display }}</p></div>
+                                <div class="release-mini"><p class="run-label">Execution Mode</p><p class="release-mini-value">{{ stage_detail.release_data.execution_mode_display }}</p></div>
+                                <div class="release-mini"><p class="run-label">Pipeline Type</p><p class="release-mini-value">{{ stage_detail.release_data.pipeline_type_display }}</p></div>
+                                <div class="release-mini"><p class="run-label">Scheduling Engine</p><p class="release-mini-value">{{ stage_detail.release_data.scheduling_engine_display }}</p></div>
+                                <div class="release-mini"><p class="run-label">Release Carbon Intensity</p><p class="release-mini-value">{{ stage_detail.release_data.carbon_intensity_display }}</p></div>
+                            </div>
                         </div>
-                        {% else %}<p class="text-sm text-slate-500 mt-4">Awaiting integrated Monitor data.</p>{% endif %}
+                        <div class="release-alert mt-4">{{ stage_detail.release_data.context_note }}</div>
+                        {% else %}
+                        <div class="release-panel mt-4 bg-transparent shadow-none"><p class="release-text font-bold">Release decision data unavailable.</p><p class="home-widget-note">Monitor measurements and Release anomaly intelligence remain available.</p></div>
+                        {% endif %}
                     </div>
-                </div>
-                <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 mt-4">
-                    <div class="detail-card">
-                        <div class="flex items-center justify-between gap-3"><p class="text-sm font-extrabold text-slate-800">Baseline Context</p><span class="kpi-icon bg-slate-100 text-slate-700"><i data-lucide="database" class="w-5 h-5"></i></span></div>
-                        <p class="text-2xl font-black text-slate-950 mt-4">{{ stage_detail.baseline_context.label }}</p>
-                        <p class="text-xs text-slate-500 mt-2">Scope: {{ stage_detail.baseline_context.context_scope }} | Historical runs: {{ stage_detail.baseline_context.historical_samples_display }} | Strategy-specific: {{ 'Yes' if stage_detail.baseline_context.strategy_specific else 'No' }}</p>
-                        {% if stage_detail.baseline_context.fallback_reason %}<p class="text-xs text-amber-700 mt-2">{{ stage_detail.baseline_context.fallback_reason }}</p>{% endif %}
+
+                    <div class="release-panel">
+                        <div class="home-section-heading !p-0">
+                            <div>
+                                <p class="home-eyebrow">What Was Processed</p>
+                                <h2>Release work context</h2>
+                            </div>
+                        </div>
+                        {% if stage_detail.release_data %}
+                        <div class="release-work-grid mt-4">
+                            <div class="release-mini"><p class="run-label">Affected Modules</p><p class="release-mini-value">{{ stage_detail.release_data.affected_modules_display }}</p></div>
+                            <div class="release-mini"><p class="run-label">Tests Executed</p><p class="release-mini-value">{{ stage_detail.release_data.tests_executed_display }}</p></div>
+                            <div class="release-mini"><p class="run-label">Tests Skipped</p><p class="release-mini-value">{{ stage_detail.release_data.tests_skipped_display }}</p></div>
+                        </div>
+                        <div class="release-flow">
+                            <div class="release-step"><p class="run-label">Build</p><p class="release-mini-value">{{ stage_detail.release_data.build_duration_display }}</p></div>
+                            <div class="release-step"><p class="run-label">Test</p><p class="release-mini-value">{{ stage_detail.release_data.test_duration_display }}</p></div>
+                            <div class="release-step"><p class="run-label">Deploy Phase</p><p class="release-mini-value">{{ stage_detail.release_data.deploy_duration_display }}</p></div>
+                            <div class="release-step"><p class="run-label">Release Total</p><p class="release-mini-value">{{ stage_detail.release_data.total_duration_display }}</p></div>
+                        </div>
+                        {% else %}
+                        <p class="release-text font-bold mt-4">Release work context unavailable for this run.</p>
+                        {% endif %}
                     </div>
-                </div>
+                </section>
+
+                <section class="release-panel">
+                    <div class="release-intel-head">
+                        <div class="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
+                            <div>
+                                <p class="home-eyebrow">Release Anomaly Intelligence</p>
+                                <h2 class="text-2xl font-black mt-2 text-[var(--home-text)]">Stage-specific sustainability intelligence for this Release lifecycle</h2>
+                            </div>
+                            <div class="release-chip-row">
+                                <span class="release-chip {% if stage_detail.anomaly_summary.overall_status == 'Critical' %}critical{% elif stage_detail.anomaly_summary.overall_status == 'Warning' %}skipped{% else %}success{% endif %}">{{ stage_detail.anomaly_summary.overall_status }}</span>
+                                <span class="release-chip skipped">{{ stage_detail.anomaly_summary.warning_count }} warnings</span>
+                                <span class="release-chip critical">{{ stage_detail.anomaly_summary.critical_count }} critical</span>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="release-intel-grid mt-4">
+                        <div class="release-intel-card">
+                            <div class="flex items-center justify-between gap-3"><div><p class="run-label">Statistical Detection</p><p class="release-text text-sm font-bold mt-1">Baseline comparison</p></div><span class="release-measure-icon"><i data-lucide="scan-search" class="w-4 h-4"></i></span></div>
+                            {% if stage_detail.statistical_alerts %}
+                            <div class="mt-4 space-y-3">
+                                {% for alert in stage_detail.statistical_alerts %}
+                                <div class="release-anomaly-item">
+                                    <div class="flex flex-wrap items-center justify-between gap-2"><span class="release-chip {% if alert.severity == 'critical' %}critical{% else %}skipped{% endif %}">{{ alert.severity_label }}</span><span class="release-muted text-xs font-bold">{{ alert.percentage_change_display }} vs baseline</span></div>
+                                    <p class="release-strong text-sm font-extrabold mt-2">{{ alert.message }}</p>
+                                    <p class="release-text text-xs mt-1">{{ alert.metric_label }}: {{ alert.current_display }} vs {{ alert.baseline_display }}</p>
+                                    <p class="release-muted text-xs mt-1">{{ alert.context_scope_display }} - {{ alert.historical_samples_display }} runs</p>
+                                    {% if alert.fallback_reason %}<p class="text-xs mt-1 text-[var(--home-warning)]">{{ alert.fallback_reason }}</p>{% endif %}
+                                </div>
+                                {% endfor %}
+                            </div>
+                            {% else %}
+                            <span class="release-chip success mt-4">Normal</span>
+                            <p class="release-text text-sm mt-3">No warning or critical statistical anomalies for Release.</p>
+                            {% endif %}
+                        </div>
+                        <div class="release-intel-card">
+                            <div class="flex items-center justify-between gap-3"><div><p class="run-label">Isolation Forest</p><p class="release-text text-sm font-bold mt-1">Multi-metric pattern check</p></div><span class="release-measure-icon"><i data-lucide="network" class="w-4 h-4"></i></span></div>
+                            {% if stage_detail.ml_results %}
+                            <div class="mt-4 space-y-3">
+                                {% for item in stage_detail.ml_results %}
+                                <div class="release-anomaly-item">
+                                    <div class="release-chip-row"><span class="release-chip {% if item.prediction == 'Anomaly' %}critical{% elif item.prediction == 'Warming Up' %}skipped{% else %}success{% endif %}">{{ item.prediction }}</span><span class="release-chip">{{ item.model_status }}</span></div>
+                                    <p class="release-strong text-sm font-extrabold mt-3">{{ item.message }}</p>
+                                    <div class="grid grid-cols-2 gap-2 mt-3 text-xs">
+                                        <div><p class="run-label">Score</p><p class="release-text font-bold">{{ item.anomaly_score_display }}</p></div>
+                                        <div><p class="run-label">Samples</p><p class="release-text font-bold">{{ item.historical_samples_display }}</p></div>
+                                        <div><p class="run-label">Context</p><p class="release-text font-bold">{{ item.context_scope_display }}</p></div>
+                                        <div><p class="run-label">Strategy-specific</p><p class="release-text font-bold">{{ 'Yes' if item.strategy_specific else 'No' }}</p></div>
+                                    </div>
+                                    {% if item.fallback_reason %}<p class="text-xs mt-2 text-[var(--home-warning)]">{{ item.fallback_reason }}</p>{% endif %}
+                                </div>
+                                {% endfor %}
+                            </div>
+                            {% else %}
+                            <p class="release-text text-sm mt-4">Awaiting integrated Monitor data.</p>
+                            {% endif %}
+                        </div>
+                        <div class="release-intel-card">
+                            <div class="flex items-center justify-between gap-3"><div><p class="run-label">Baseline Context</p><p class="release-text text-sm font-bold mt-1">Historical population used</p></div><span class="release-measure-icon"><i data-lucide="database" class="w-4 h-4"></i></span></div>
+                            <p class="text-2xl font-black mt-4 text-[var(--home-text)]">{{ stage_detail.baseline_context.label }}</p>
+                            <div class="grid grid-cols-2 gap-2 mt-4 text-xs">
+                                <div class="release-mini"><p class="run-label">Scope</p><p class="release-mini-value">{{ stage_detail.baseline_context.context_scope }}</p></div>
+                                <div class="release-mini"><p class="run-label">Historical Runs</p><p class="release-mini-value">{{ stage_detail.baseline_context.historical_samples_display }}</p></div>
+                                <div class="release-mini"><p class="run-label">Strategy-specific</p><p class="release-mini-value">{{ 'Yes' if stage_detail.baseline_context.strategy_specific else 'No' }}</p></div>
+                                <div class="release-mini"><p class="run-label">Stage</p><p class="release-mini-value">Release</p></div>
+                            </div>
+                            {% if stage_detail.baseline_context.fallback_reason %}<p class="text-xs mt-3 text-[var(--home-warning)]">{{ stage_detail.baseline_context.fallback_reason }}</p>{% endif %}
+                        </div>
+                    </div>
+                </section>
             </section>
+            {% elif stage_detail.key == 'deploy' %}
+            {% set deploy_row = stage_detail.rows[0] if stage_detail.rows else none %}
+            <section class="deploy-page space-y-5">
+                <section class="deploy-hero">
+                    <div class="deploy-panel deploy-hero-main">
+                        <a href="/run/{{ selected_run|urlencode }}" class="home-view-all w-fit"><i data-lucide="arrow-left" class="w-4 h-4"></i> Back to Run #{{ selected_run }}</a>
+                        <div class="deploy-chip-row mt-4">
+                            <span class="deploy-chip carbon"><i data-lucide="rocket" class="w-4 h-4"></i>Deploy Lifecycle</span>
+                            {% if stage_detail.skipped %}
+                            <span class="deploy-chip skipped"><i data-lucide="pause-circle" class="w-4 h-4"></i>Deploy Skipped</span>
+                            {% elif deploy_row %}
+                            <span class="deploy-chip {% if deploy_row.status_display == 'SUCCESS' %}success{% elif deploy_row.status_display in ['ABORTED', 'CANCELLED', 'CANCELED'] %}{% else %}failed{% endif %}"><i data-lucide="{% if deploy_row.status_display == 'SUCCESS' %}check-circle-2{% elif deploy_row.status_display in ['ABORTED', 'CANCELLED', 'CANCELED'] %}circle-slash{% else %}alert-triangle{% endif %}" class="w-4 h-4"></i>{{ deploy_row.status_display }}</span>
+                            {% else %}
+                            <span class="deploy-chip"><i data-lucide="circle-help" class="w-4 h-4"></i>Monitor unavailable</span>
+                            {% endif %}
+                            {% if stage_detail.deploy_data %}
+                            <span class="deploy-chip carbon"><i data-lucide="git-branch" class="w-4 h-4"></i>{{ stage_detail.deploy_data.strategy_display }}</span>
+                            {% endif %}
+                        </div>
+                        <h1 class="deploy-title mt-4">Deploy</h1>
+                        <p class="deploy-subtitle mt-3">Run #{{ selected_run }} - {{ pipeline_name }}</p>
+                        {% if stage_detail.skipped and stage_detail.skip_reason_display %}
+                        <div class="deploy-alert mt-4"><i data-lucide="pause-circle" class="inline w-4 h-4 mr-1"></i>Deploy skipped: {{ stage_detail.skip_reason_display }}</div>
+                        {% endif %}
+                    </div>
+                    <div class="deploy-panel">
+                        <div class="deploy-fact"><div><p class="run-label">Monitor Status</p><p class="home-widget-note">Lifecycle result</p></div><p class="deploy-fact-value">{{ deploy_row.status_display if deploy_row else stage_detail.summary_status }}</p></div>
+                        <div class="deploy-fact"><div><p class="run-label">Deployment Status</p><p class="home-widget-note">Deploy DB telemetry</p></div><p class="deploy-fact-value">{{ stage_detail.deploy_data.status_display if stage_detail.deploy_data else 'Not available' }}</p></div>
+                        <div class="deploy-fact"><div><p class="run-label">Image</p><p class="home-widget-note">Deployment artifact</p></div><p class="deploy-fact-value">{{ stage_detail.deploy_data.image_display if stage_detail.deploy_data else 'Not available' }}</p></div>
+                    </div>
+                </section>
+
+                <section class="lifecycle-flow">
+                    <div class="home-section-heading">
+                        <div>
+                            <p class="home-eyebrow">Monitor Measured</p>
+                            <h2>Deploy lifecycle cost</h2>
+                        </div>
+                        <p>Resource and sustainability measurements collected during the Deploy lifecycle.</p>
+                    </div>
+                    {% if stage_detail.rows %}
+                    {% for row in stage_detail.rows %}
+                    <div class="deploy-measure-grid mt-3">
+                        <div class="deploy-measure"><div class="deploy-measure-top"><p class="run-label">Duration</p><span class="deploy-measure-icon"><i data-lucide="timer" class="w-4 h-4"></i></span></div><p class="deploy-measure-value">{{ row.workload_duration_display }}</p><p class="home-widget-note">Workload time</p></div>
+                        <div class="deploy-measure energy"><div class="deploy-measure-top"><p class="run-label">Energy</p><span class="deploy-measure-icon"><i data-lucide="zap" class="w-4 h-4"></i></span></div><p class="deploy-measure-value">{{ row.total_energy_display }}</p><p class="home-widget-note">Monitor total</p></div>
+                        <div class="deploy-measure carbon"><div class="deploy-measure-top"><p class="run-label">Carbon</p><span class="deploy-measure-icon"><i data-lucide="leaf" class="w-4 h-4"></i></span></div><p class="deploy-measure-value">{{ row.total_carbon_display }}</p><p class="home-widget-note">Monitor total</p></div>
+                        <div class="deploy-measure cpu"><div class="deploy-measure-top"><p class="run-label">Average CPU</p><span class="deploy-measure-icon"><i data-lucide="cpu" class="w-4 h-4"></i></span></div><p class="deploy-measure-value">{{ row.avg_cpu_display }}</p><p class="home-widget-note">Monitor observed</p></div>
+                        <div class="deploy-measure memory"><div class="deploy-measure-top"><p class="run-label">Average Memory</p><span class="deploy-measure-icon"><i data-lucide="memory-stick" class="w-4 h-4"></i></span></div><p class="deploy-measure-value">{{ row.avg_memory_display }}</p><p class="home-widget-note">Monitor observed</p></div>
+                        <div class="deploy-measure overhead"><div class="deploy-measure-top"><p class="run-label">Overhead</p><span class="deploy-measure-icon"><i data-lucide="activity" class="w-4 h-4"></i></span></div><p class="deploy-measure-value">{{ row.overhead_percentage_display }}</p><p class="home-widget-note">Jenkins timing gap</p></div>
+                    </div>
+                    {% endfor %}
+                    {% else %}
+                    <div class="deploy-panel mt-3"><p class="release-text font-bold">Monitor Deploy data unavailable for this run.</p></div>
+                    {% endif %}
+                </section>
+
+                <section class="deploy-two-col">
+                    <div class="deploy-panel">
+                        <div class="home-section-heading !p-0">
+                            <div>
+                                <p class="home-eyebrow">Deployment Strategy</p>
+                                <h2>How the application was deployed</h2>
+                            </div>
+                            <p>DEPLOYMENT TELEMETRY from the Deploy component.</p>
+                        </div>
+                        {% if stage_detail.skipped %}
+                        <div class="deploy-alert mt-4">Deployment telemetry is not applied because this Monitor Deploy lifecycle was skipped.</div>
+                        {% elif stage_detail.deploy_data %}
+                        <p class="deploy-strategy-value mt-4">{{ stage_detail.deploy_data.strategy_display }}</p>
+                        <div class="deploy-mini-grid mt-4">
+                            <div class="deploy-mini"><p class="run-label">Canary Weight</p><p class="deploy-mini-value">{{ stage_detail.deploy_data.canary_weight_display }}</p></div>
+                            <div class="deploy-mini"><p class="run-label">Carbon Profile</p><p class="deploy-mini-value">{{ stage_detail.deploy_data.carbon_profile_display }}</p></div>
+                            <div class="deploy-mini"><p class="run-label">Deployment Duration</p><p class="deploy-mini-value">{{ stage_detail.deploy_data.duration_display }}</p></div>
+                            <div class="deploy-mini"><p class="run-label">Status</p><p class="deploy-mini-value">{{ stage_detail.deploy_data.status_display }}</p></div>
+                            <div class="deploy-mini sm:col-span-2"><p class="run-label">Image</p><p class="deploy-mini-value">{{ stage_detail.deploy_data.image_display }}</p></div>
+                        </div>
+                        {% else %}
+                        <div class="deploy-alert mt-4">Deployment telemetry unavailable. Monitor Deploy measurements and anomaly intelligence remain available.</div>
+                        {% endif %}
+                    </div>
+
+                    <div class="deploy-panel">
+                        <div class="home-section-heading !p-0">
+                            <div>
+                                <p class="home-eyebrow">Carbon & Profiler</p>
+                                <h2>Supplementary deployment telemetry</h2>
+                            </div>
+                        </div>
+                        {% if stage_detail.skipped %}
+                        <p class="release-text font-bold mt-4">No deployment telemetry applied for a skipped Deploy lifecycle.</p>
+                        {% elif stage_detail.deploy_data %}
+                        <div class="deploy-mini-grid mt-4">
+                            <div class="deploy-mini"><p class="run-label">Carbon Intensity</p><p class="deploy-mini-value">{{ stage_detail.deploy_data.carbon_intensity_display }}</p></div>
+                            <div class="deploy-mini"><p class="run-label">Intensity Source</p><p class="deploy-mini-value">{{ stage_detail.deploy_data.intensity_source_display }}</p></div>
+                            <div class="deploy-mini"><p class="run-label">Infra Multiplier</p><p class="deploy-mini-value">{{ stage_detail.deploy_data.infra_multiplier_display }}</p></div>
+                            <div class="deploy-mini"><p class="run-label">Strategy Carbon Profile</p><p class="deploy-mini-value">{{ stage_detail.deploy_data.strategy_carbon_profile_display }}</p></div>
+                            <div class="deploy-mini"><p class="run-label">Deploy Energy</p><p class="deploy-mini-value">{{ stage_detail.deploy_data.total_energy_display }}</p></div>
+                            <div class="deploy-mini"><p class="run-label">Deploy Carbon</p><p class="deploy-mini-value">{{ stage_detail.deploy_data.total_g_co2_display }}</p></div>
+                            <div class="deploy-mini"><p class="run-label">Profiler Samples</p><p class="deploy-mini-value">{{ stage_detail.deploy_data.samples_collected_display }}</p></div>
+                            <div class="deploy-mini"><p class="run-label">Peak CPU</p><p class="deploy-mini-value">{{ stage_detail.deploy_data.peak_cpu_display }}</p></div>
+                            <div class="deploy-mini"><p class="run-label">Peak Memory</p><p class="deploy-mini-value">{{ stage_detail.deploy_data.peak_memory_display }}</p></div>
+                            <div class="deploy-mini"><p class="run-label">Min Memory</p><p class="deploy-mini-value">{{ stage_detail.deploy_data.min_memory_display }}</p></div>
+                        </div>
+                        {% else %}
+                        <p class="release-text font-bold mt-4">Deployment telemetry unavailable for this run.</p>
+                        {% endif %}
+                    </div>
+                </section>
+
+                <section class="deploy-two-col">
+                    <div class="deploy-panel">
+                        <div class="home-section-heading !p-0">
+                            <div>
+                                <p class="home-eyebrow">Deployment Timeline</p>
+                                <h2>Execution and carbon snapshots</h2>
+                            </div>
+                        </div>
+                        {% if stage_detail.deploy_data %}
+                        <div class="deploy-timeline mt-4">
+                            <div class="deploy-event"><span class="deploy-dot"></span><div class="deploy-event-body"><p class="run-label">Deployment Started</p><p class="deploy-mini-value">{{ stage_detail.deploy_data.start_time_display }}</p></div></div>
+                            {% for snapshot in stage_detail.deploy_data.snapshots_display %}
+                            <div class="deploy-event"><span class="deploy-dot"></span><div class="deploy-event-body"><p class="run-label">{{ snapshot.phase }}</p><p class="deploy-mini-value">{{ snapshot.snapshot_timestamp }}</p><div class="deploy-snapshot-grid"><p class="release-text text-xs">Strategy: {{ snapshot.strategy }}</p><p class="release-text text-xs">Multiplier: {{ snapshot.infra_multiplier }}</p><p class="release-text text-xs">Downtime: {{ snapshot.downtime_seconds }}</p><p class="release-text text-xs">Canary: {{ snapshot.canary_weight }}</p></div><p class="release-muted text-xs mt-2">{{ snapshot.note }}</p></div></div>
+                            {% endfor %}
+                            <div class="deploy-event"><span class="deploy-dot"></span><div class="deploy-event-body"><p class="run-label">Deployment Completed</p><p class="deploy-mini-value">{{ stage_detail.deploy_data.end_time_display }}</p><p class="home-widget-note">Duration: {{ stage_detail.deploy_data.duration_display }}</p></div></div>
+                        </div>
+                        {% else %}
+                        <p class="release-text font-bold mt-4">Deployment timeline unavailable.</p>
+                        {% endif %}
+                    </div>
+
+                    <div class="deploy-panel">
+                        <div class="home-section-heading !p-0">
+                            <div>
+                                <p class="home-eyebrow">Monitor + Profiler Resource View</p>
+                                <h2>CPU and memory shape</h2>
+                            </div>
+                        </div>
+                        {% if stage_detail.rows %}
+                        {% for row in stage_detail.rows %}
+                        <div class="deploy-resource-grid">
+                            <div class="deploy-mini"><p class="run-label">Monitor Avg CPU</p><p class="deploy-mini-value">{{ row.avg_cpu_display }}</p><div class="deploy-bar-track"><div class="deploy-bar-fill" style="width: {{ row.avg_cpu_bar_width }}%;"></div></div></div>
+                            <div class="deploy-mini"><p class="run-label">Monitor Peak CPU</p><p class="deploy-mini-value">{{ row.peak_cpu_display }}</p></div>
+                            <div class="deploy-mini"><p class="run-label">Monitor Avg Memory</p><p class="deploy-mini-value">{{ row.avg_memory_display }}</p><div class="deploy-bar-track"><div class="deploy-bar-fill" style="width: {{ row.avg_memory_bar_width }}%;"></div></div></div>
+                            <div class="deploy-mini"><p class="run-label">Monitor Peak Memory</p><p class="deploy-mini-value">{{ row.peak_memory_display }}</p></div>
+                        </div>
+                        {% endfor %}
+                        {% endif %}
+                        {% if stage_detail.deploy_data and not stage_detail.skipped %}
+                        <div class="deploy-mini-grid mt-3">
+                            <div class="deploy-mini"><p class="run-label">Profiler Avg CPU</p><p class="deploy-mini-value">{{ stage_detail.deploy_data.avg_cpu_display }}</p></div>
+                            <div class="deploy-mini"><p class="run-label">Profiler Min CPU</p><p class="deploy-mini-value">{{ stage_detail.deploy_data.min_cpu_display }}</p></div>
+                            <div class="deploy-mini"><p class="run-label">Profiler Avg Memory</p><p class="deploy-mini-value">{{ stage_detail.deploy_data.avg_memory_display }}</p></div>
+                            <div class="deploy-mini"><p class="run-label">Profiler Min Memory</p><p class="deploy-mini-value">{{ stage_detail.deploy_data.min_memory_display }}</p></div>
+                        </div>
+                        {% endif %}
+                    </div>
+                </section>
+
+                <section class="deploy-panel">
+                    <div class="deploy-intel-head">
+                        <div class="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
+                            <div>
+                                <p class="home-eyebrow">Deploy Anomaly Intelligence</p>
+                                <h2 class="text-2xl font-black mt-2 text-[var(--home-text)]">Stage-specific sustainability intelligence for this Deploy lifecycle</h2>
+                            </div>
+                            <div class="deploy-chip-row">
+                                <span class="deploy-chip {% if stage_detail.anomaly_summary.overall_status == 'Critical' %}critical{% elif stage_detail.anomaly_summary.overall_status == 'Warning' %}skipped{% else %}success{% endif %}">{{ stage_detail.anomaly_summary.overall_status }}</span>
+                                <span class="deploy-chip skipped">{{ stage_detail.anomaly_summary.warning_count }} warnings</span>
+                                <span class="deploy-chip critical">{{ stage_detail.anomaly_summary.critical_count }} critical</span>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="deploy-intel-grid mt-4">
+                        <div class="deploy-intel-card">
+                            <div class="flex items-center justify-between gap-3"><div><p class="run-label">Statistical Detection</p><p class="release-text text-sm font-bold mt-1">Baseline comparison</p></div><span class="deploy-measure-icon"><i data-lucide="scan-search" class="w-4 h-4"></i></span></div>
+                            {% if stage_detail.statistical_alerts %}
+                            <div class="mt-4 space-y-3">
+                                {% for alert in stage_detail.statistical_alerts %}
+                                <div class="deploy-anomaly-item"><div class="flex flex-wrap items-center justify-between gap-2"><span class="deploy-chip {% if alert.severity == 'critical' %}critical{% else %}skipped{% endif %}">{{ alert.severity_label }}</span><span class="release-muted text-xs font-bold">{{ alert.percentage_change_display }} vs baseline</span></div><p class="release-strong text-sm font-extrabold mt-2">{{ alert.message }}</p><p class="release-text text-xs mt-1">{{ alert.metric_label }}: {{ alert.current_display }} vs {{ alert.baseline_display }}</p><p class="release-muted text-xs mt-1">{{ alert.context_scope_display }} - {{ alert.historical_samples_display }} runs</p>{% if alert.fallback_reason %}<p class="text-xs mt-1 text-[var(--home-warning)]">{{ alert.fallback_reason }}</p>{% endif %}</div>
+                                {% endfor %}
+                            </div>
+                            {% else %}
+                            <span class="deploy-chip success mt-4">Normal</span>
+                            <p class="release-text text-sm mt-3">No warning or critical statistical anomalies for Deploy.</p>
+                            {% endif %}
+                        </div>
+                        <div class="deploy-intel-card">
+                            <div class="flex items-center justify-between gap-3"><div><p class="run-label">Isolation Forest</p><p class="release-text text-sm font-bold mt-1">Multi-metric pattern check</p></div><span class="deploy-measure-icon"><i data-lucide="network" class="w-4 h-4"></i></span></div>
+                            {% if stage_detail.ml_results %}
+                            <div class="mt-4 space-y-3">
+                                {% for item in stage_detail.ml_results %}
+                                <div class="deploy-anomaly-item"><div class="deploy-chip-row"><span class="deploy-chip {% if item.prediction == 'Anomaly' %}critical{% elif item.prediction == 'Warming Up' %}skipped{% else %}success{% endif %}">{{ item.prediction }}</span><span class="deploy-chip">{{ item.model_status }}</span></div><p class="release-strong text-sm font-extrabold mt-3">{{ item.message }}</p><div class="grid grid-cols-2 gap-2 mt-3 text-xs"><div><p class="run-label">Score</p><p class="release-text font-bold">{{ item.anomaly_score_display }}</p></div><div><p class="run-label">Samples</p><p class="release-text font-bold">{{ item.historical_samples_display }}</p></div><div><p class="run-label">Context</p><p class="release-text font-bold">{{ item.context_scope_display }}</p></div><div><p class="run-label">Strategy-specific</p><p class="release-text font-bold">{{ 'Yes' if item.strategy_specific else 'No' }}</p></div></div>{% if item.fallback_reason %}<p class="text-xs mt-2 text-[var(--home-warning)]">{{ item.fallback_reason }}</p>{% endif %}</div>
+                                {% endfor %}
+                            </div>
+                            {% else %}
+                            <p class="release-text text-sm mt-4">Awaiting integrated Monitor data.</p>
+                            {% endif %}
+                        </div>
+                        <div class="deploy-intel-card">
+                            <div class="flex items-center justify-between gap-3"><div><p class="run-label">Baseline Context</p><p class="release-text text-sm font-bold mt-1">Historical population used</p></div><span class="deploy-measure-icon"><i data-lucide="database" class="w-4 h-4"></i></span></div>
+                            <p class="text-2xl font-black mt-4 text-[var(--home-text)]">{{ stage_detail.baseline_context.label }}</p>
+                            <div class="grid grid-cols-2 gap-2 mt-4 text-xs">
+                                <div class="deploy-mini"><p class="run-label">Scope</p><p class="deploy-mini-value">{{ stage_detail.baseline_context.context_scope }}</p></div>
+                                <div class="deploy-mini"><p class="run-label">Historical Runs</p><p class="deploy-mini-value">{{ stage_detail.baseline_context.historical_samples_display }}</p></div>
+                                <div class="deploy-mini"><p class="run-label">Strategy-specific</p><p class="deploy-mini-value">{{ 'Yes' if stage_detail.baseline_context.strategy_specific else 'No' }}</p></div>
+                                <div class="deploy-mini"><p class="run-label">Stage</p><p class="deploy-mini-value">Deploy</p></div>
+                            </div>
+                            {% if stage_detail.baseline_context.fallback_reason %}<p class="text-xs mt-3 text-[var(--home-warning)]">{{ stage_detail.baseline_context.fallback_reason }}</p>{% endif %}
+                        </div>
+                    </div>
+                </section>
+            </section>
+            {% endif %}
         </main>
         {% endif %}
     </div>
     <script>
         lucide.createIcons();
+        const themeStorageKey = "green-devops-theme";
+        const themeButtons = document.querySelectorAll("[data-theme-choice]");
+        function applyTheme(theme, persist) {
+            const selectedTheme = theme === "dark" ? "dark" : "light";
+            document.documentElement.dataset.theme = selectedTheme;
+            if (persist) {
+                try { localStorage.setItem(themeStorageKey, selectedTheme); } catch (error) {}
+            }
+            themeButtons.forEach(function(button) {
+                button.setAttribute("aria-pressed", button.dataset.themeChoice === selectedTheme ? "true" : "false");
+            });
+            if (window.homeCharts) updateHomeCharts();
+        }
+        themeButtons.forEach(function(button) {
+            button.addEventListener("click", function() {
+                applyTheme(button.dataset.themeChoice, true);
+            });
+        });
+        applyTheme(document.documentElement.dataset.theme || "light", false);
         {% if page == 'home' %}
         Chart.defaults.font.family = "'Plus Jakarta Sans', sans-serif";
         const runLabels = {{ run_chart_labels | safe }};
-        const homeChartOptions = {
-            responsive: true,
-            maintainAspectRatio: false,
-            interaction: { intersect: false, mode: "index" },
-            plugins: {
-                legend: { labels: { usePointStyle: true, boxWidth: 7, color: "#64748b", font: { size: 12, weight: "700" } } },
-                tooltip: { backgroundColor: "#111827", padding: 12, cornerRadius: 12, titleFont: { weight: "800" }, bodyFont: { weight: "600" } }
-            },
-            scales: {
-                x: { grid: { display: false }, border: { display: false }, ticks: { color: "#94a3b8", maxRotation: 0, autoSkip: true } },
-                y: { grid: { color: "rgba(226, 232, 240, .72)" }, border: { display: false }, ticks: { color: "#94a3b8" } }
-            }
+        function homeThemeColors() {
+            const styles = getComputedStyle(document.documentElement);
+            return {
+                energy: styles.getPropertyValue("--home-accent-energy").trim() || "#00c896",
+                carbon: styles.getPropertyValue("--home-accent-carbon").trim() || "#22d3ee",
+                text: styles.getPropertyValue("--home-text-secondary").trim() || "#b7c4d4",
+                muted: styles.getPropertyValue("--home-text-muted").trim() || "#7f91a3",
+                grid: document.documentElement.dataset.theme === "dark" ? "rgba(226,232,240,.08)" : "rgba(15,23,42,.08)",
+                tooltip: document.documentElement.dataset.theme === "dark" ? "#f8fafc" : "#111827",
+                tooltipText: document.documentElement.dataset.theme === "dark" ? "#111827" : "#f8fafc"
+            };
+        }
+        function homeChartOptions() {
+            const colors = homeThemeColors();
+            return {
+                responsive: true,
+                maintainAspectRatio: false,
+                interaction: { intersect: false, mode: "index" },
+                plugins: {
+                    legend: { labels: { usePointStyle: true, boxWidth: 7, color: colors.text, font: { size: 12, weight: "700" } } },
+                    tooltip: { backgroundColor: colors.tooltip, titleColor: colors.tooltipText, bodyColor: colors.tooltipText, padding: 12, cornerRadius: 12, titleFont: { weight: "800" }, bodyFont: { weight: "600" } }
+                },
+                scales: {
+                    x: { grid: { display: false }, border: { display: false }, ticks: { color: colors.muted, maxRotation: 0, autoSkip: true } },
+                    y: { grid: { color: colors.grid }, border: { display: false }, ticks: { color: colors.muted } }
+                }
+            };
+        }
+        function homeLineDataset(label, data, color) {
+            return { label, data, borderColor: color, backgroundColor: color + "18", pointBackgroundColor: "transparent", pointBorderColor: color, pointRadius: 3, pointHoverRadius: 5, borderWidth: 2.5, fill: true, tension: .38 };
+        }
+        const initialHomeColors = homeThemeColors();
+        window.homeCharts = [
+            new Chart(document.getElementById("runEnergyChart"), { type: "line", data: { labels: runLabels, datasets: [homeLineDataset("Energy kWh", {{ run_energy_values | safe }}, initialHomeColors.energy)] }, options: homeChartOptions() }),
+            new Chart(document.getElementById("runCarbonChart"), { type: "line", data: { labels: runLabels, datasets: [homeLineDataset("Carbon kgCO2e", {{ run_carbon_values | safe }}, initialHomeColors.carbon)] }, options: homeChartOptions() })
+        ];
+        function updateHomeCharts() {
+            const colors = homeThemeColors();
+            window.homeCharts[0].data.datasets[0].borderColor = colors.energy;
+            window.homeCharts[0].data.datasets[0].backgroundColor = colors.energy + "18";
+            window.homeCharts[0].data.datasets[0].pointBorderColor = colors.energy;
+            window.homeCharts[1].data.datasets[0].borderColor = colors.carbon;
+            window.homeCharts[1].data.datasets[0].backgroundColor = colors.carbon + "18";
+            window.homeCharts[1].data.datasets[0].pointBorderColor = colors.carbon;
+            window.homeCharts.forEach(function(chart) {
+                chart.options = homeChartOptions();
+                chart.update();
+            });
+        }
+        {% endif %}
+        {% if page == 'runs' %}
+        const runRows = Array.from(document.querySelectorAll("[data-run-row]"));
+        const runsSearch = document.getElementById("runsSearch");
+        const runsStatusFilter = document.getElementById("runsStatusFilter");
+        const runsCount = document.getElementById("runsCount");
+        const runsEmpty = document.getElementById("runsEmpty");
+        const runsReset = document.getElementById("runsReset");
+
+        const statusLabels = {
+            success: "Success",
+            failed: "Failed",
+            skipped: "Skipped",
+            aborted: "Aborted",
+            cancelled: "Cancelled",
+            canceled: "Cancelled"
         };
-        new Chart(document.getElementById("runEnergyChart"), { type: "line", data: { labels: runLabels, datasets: [{ label: "Energy kWh", data: {{ run_energy_values | safe }}, borderColor: "rgba(5, 150, 105, 1)", backgroundColor: "rgba(16, 185, 129, .08)", pointBackgroundColor: "#ffffff", pointBorderColor: "rgba(5, 150, 105, 1)", pointRadius: 3, pointHoverRadius: 5, borderWidth: 2, fill: true, tension: .38 }] }, options: homeChartOptions });
-        new Chart(document.getElementById("runCarbonChart"), { type: "line", data: { labels: runLabels, datasets: [{ label: "Carbon kgCO2e", data: {{ run_carbon_values | safe }}, borderColor: "rgba(2, 132, 199, 1)", backgroundColor: "rgba(14, 165, 233, .08)", pointBackgroundColor: "#ffffff", pointBorderColor: "rgba(2, 132, 199, 1)", pointRadius: 3, pointHoverRadius: 5, borderWidth: 2, fill: true, tension: .38 }] }, options: homeChartOptions });
+        Array.from(new Set(runRows.map(function(row) {
+            return (row.dataset.status || "").toLowerCase();
+        }).filter(Boolean))).sort().forEach(function(status) {
+            const option = document.createElement("option");
+            option.value = status;
+            option.textContent = statusLabels[status] || status.charAt(0).toUpperCase() + status.slice(1);
+            runsStatusFilter.appendChild(option);
+        });
+
+        function updateRunsList() {
+            const query = (runsSearch.value || "").trim().toLowerCase();
+            const selectedStatus = runsStatusFilter.value;
+            let visibleCount = 0;
+            runRows.forEach(function(row) {
+                const haystack = ((row.dataset.runId || "") + " " + (row.dataset.pipelineName || "")).toLowerCase();
+                const status = (row.dataset.status || "").toLowerCase();
+                const matchesSearch = !query || haystack.includes(query);
+                const matchesStatus = selectedStatus === "all" || status === selectedStatus;
+                const isVisible = matchesSearch && matchesStatus;
+                row.hidden = !isVisible;
+                if (isVisible) visibleCount += 1;
+            });
+            const totalCount = runRows.length;
+            runsCount.textContent = visibleCount === totalCount ? `${totalCount} pipeline runs` : `Showing ${visibleCount} of ${totalCount} runs`;
+            runsEmpty.style.display = visibleCount ? "none" : "block";
+        }
+
+        runsSearch.addEventListener("input", updateRunsList);
+        runsStatusFilter.addEventListener("change", updateRunsList);
+        runsReset.addEventListener("click", function() {
+            runsSearch.value = "";
+            runsStatusFilter.value = "all";
+            updateRunsList();
+            runsSearch.focus();
+        });
+        updateRunsList();
         {% endif %}
     </script>
 </body>
@@ -3283,7 +3884,7 @@ def enrich_run_summary_for_pages(df, run_summary):
         if row.get("jenkins_stage_duration_captured") else format_seconds(row["duration_seconds"]),
         axis=1,
     )
-    health_scores, alert_counts, start_times, end_times = [], [], [], []
+    health_scores, alert_counts, start_times, end_times, pipeline_names = [], [], [], [], []
     for run_id in rows["run_id"].astype(str).tolist():
         current_run_df = df[df["run_id"] == run_id].copy()
         historical_df = df[df["run_id"] != run_id].copy()
@@ -3302,10 +3903,17 @@ def enrich_run_summary_for_pages(df, run_summary):
         start_time, end_time = _run_times(current_run_df)
         start_times.append(start_time)
         end_times.append(end_time)
+        pipeline_name = (
+            str(current_run_df["pipeline_name"].dropna().astype(str).iloc[0])
+            if "pipeline_name" in current_run_df.columns and not current_run_df["pipeline_name"].dropna().empty
+            else ""
+        )
+        pipeline_names.append(pipeline_name)
     rows["health_score"] = health_scores
     rows["alert_count"] = alert_counts
     rows["start_time_display"] = start_times
     rows["end_time_display"] = end_times
+    rows["pipeline_name_display"] = pipeline_names
     return rows
 
 
