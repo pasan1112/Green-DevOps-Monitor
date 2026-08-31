@@ -35,6 +35,83 @@ def serializeCarbonForecast(forecastList) {
     return '[' + entries.join(',') + ']'
 }
 
+def utcTimestamp() {
+    return new Date().format("yyyy-MM-dd'T'HH:mm:ss'Z'", TimeZone.getTimeZone('UTC'))
+}
+
+def markReleaseStart() {
+    if (env.RELEASE_STARTED == 'true') {
+        return
+    }
+    env.RELEASE_STARTED = 'true'
+    env.RELEASE_START_MS = System.currentTimeMillis().toString()
+    env.RELEASE_START_TIME = utcTimestamp()
+}
+
+def markReleaseEnd() {
+    if (env.RELEASE_STARTED != 'true' || env.RELEASE_END_TIME?.trim()) {
+        return
+    }
+    env.RELEASE_END_MS = System.currentTimeMillis().toString()
+    env.RELEASE_END_TIME = utcTimestamp()
+    if (env.RELEASE_START_MS?.trim()) {
+        env.RELEASE_DURATION = ((env.RELEASE_END_MS.toLong() - env.RELEASE_START_MS.toLong()) / 1000.0).toString()
+    }
+}
+
+def releaseMetricsCsvPath() {
+    return "${env.MONITOR_HOME}/data/release_metrics.csv"
+}
+
+def csvNullable(value) {
+    def text = value == null ? '' : value.toString()
+    return text.trim() ? text : null
+}
+
+def writeReleaseMetricsCsv(String releaseStatus) {
+    def payload = [
+        job_name: env.JOB_NAME ?: '',
+        build_number: env.BUILD_NUMBER ?: '',
+        commit_sha: env.COMMIT_SHA ?: '',
+        commit_message: env.COMMIT_MSG ?: '',
+        release_status: releaseStatus ?: '',
+        release_start_time: env.RELEASE_START_TIME ?: '',
+        release_end_time: env.RELEASE_END_TIME ?: '',
+        release_duration_s: csvNullable(env.RELEASE_DURATION),
+        optimizer_status: env.OPTIMIZER_STATUS ?: '',
+        optimizer_duration_s: csvNullable(env.OPTIMIZER_DURATION),
+        optimizer_executed: env.OPTIMIZER_EXECUTED ?: '',
+        optimizer_skip_reason: env.OPTIMIZER_SKIP_REASON ?: '',
+        affected_modules: env.AFFECTED_MODULES ?: '',
+        build_duration_s: csvNullable(env.BUILD_DURATION),
+        test_duration_s: csvNullable(env.TEST_DURATION),
+        docker_build_duration_s: csvNullable(env.DOCKER_BUILD_DURATION),
+        tests_executed: csvNullable(env.TESTS_EXECUTED),
+        tests_skipped: csvNullable(env.TESTS_SKIPPED),
+        build_command: env.MAVEN_BUILD_COMMANDS ?: '',
+        test_command: env.MAVEN_TEST_COMMANDS ?: '',
+        carbon_intensity: csvNullable(env.CARBON_INTENSITY),
+        green_probability: csvNullable(env.GREEN_PROBABILITY),
+        scheduling_action: env.SCHEDULING_ACTION ?: '',
+        scheduling_engine: env.SCHEDULING_ENGINE ?: ''
+    ]
+
+    writeFile file: 'release_metrics_payload.json', text: groovy.json.JsonOutput.toJson(payload)
+
+    def writerStatus = sh(
+        script: """
+        "${env.MONITOR_PYTHON}" "${env.MONITOR_HOME}/release_metrics_writer.py" "${releaseMetricsCsvPath()}" release_metrics_payload.json
+        """,
+        returnStatus: true
+    )
+    if (writerStatus != 0) {
+        echo "[ReleaseMetrics] WARNING: CSV telemetry write failed with exit code ${writerStatus}. Pipeline result will not be changed."
+        return false
+    }
+    echo "[ReleaseMetrics] Release telemetry written to ${releaseMetricsCsvPath()}."
+    return true
+}
+
 def discoverModuleTestInventory() {
     def inventory = [:]
     greenReleaseModules().each { moduleName ->
@@ -106,9 +183,7 @@ def releaseWorkPlanned() {
     def hasBuildCommands = env.MAVEN_BUILD_COMMANDS?.trim() ? true : false
     def hasTestCommands = env.MAVEN_TEST_COMMANDS?.trim() ? true : false
     def hasDockerBuild = appAffected()
-    return !params.DRY_RUN &&
-        env.OPTIMIZER_STATUS == 'success' &&
-        (hasBuildCommands || hasTestCommands || hasDockerBuild)
+    return !params.DRY_RUN && (hasBuildCommands || hasTestCommands || hasDockerBuild)
 }
 
 def deployWorkPlanned() {
@@ -118,6 +193,9 @@ def deployWorkPlanned() {
 def releaseSkipReason() {
     if (params.DRY_RUN) {
         return 'dry_run'
+    }
+    if (env.OPTIMIZER_SKIP_REASON?.trim()) {
+        return env.OPTIMIZER_SKIP_REASON
     }
     if (!env.AFFECTED_MODULES?.trim()) {
         return 'no_affected_components'
@@ -236,6 +314,42 @@ def skipMonitorSession(String lifecycleStage, String reason) {
     echo "[Monitor] WARNING: Unsupported monitor lifecycle '${lifecycleStage}'. Continuing pipeline."
 }
 
+def cancelMonitorSession(String lifecycleStage) {
+    if (lifecycleStage == 'release') {
+        if (env.RELEASE_MONITOR_STARTED != 'true' ||
+            env.RELEASE_MONITOR_FINISHED == 'true' ||
+            env.RELEASE_MONITOR_SKIPPED == 'true') {
+            return
+        }
+
+        echo "[Monitor] Cancelling release monitor session without recording a lifecycle outcome."
+        monitorCommand('release', 'cancel')
+
+        env.RELEASE_MONITOR_STARTED  = 'false'
+        env.RELEASE_MONITOR_FINISHED = 'false'
+        env.RELEASE_MONITOR_SKIPPED  = 'false'
+        return
+    }
+
+    if (lifecycleStage == 'deploy') {
+        if (env.DEPLOY_MONITOR_STARTED != 'true' ||
+            env.DEPLOY_MONITOR_FINISHED == 'true' ||
+            env.DEPLOY_MONITOR_SKIPPED == 'true') {
+            return
+        }
+
+        echo "[Monitor] Cancelling deploy monitor session without recording a lifecycle outcome."
+        monitorCommand('deploy', 'cancel')
+
+        env.DEPLOY_MONITOR_STARTED  = 'false'
+        env.DEPLOY_MONITOR_FINISHED = 'false'
+        env.DEPLOY_MONITOR_SKIPPED  = 'false'
+        return
+    }
+
+    echo "[Monitor] WARNING: Unsupported monitor lifecycle '${lifecycleStage}'. Continuing pipeline."
+}
+
 pipeline {
     agent any
 
@@ -275,7 +389,6 @@ pipeline {
         DOCKER_IMAGE             = 'hiranx/green-release-app'
         DOCKER_TAG               = "${BUILD_NUMBER}"
         DOCKER_HUB_CREDENTIALS   = credentials('dockerhub-hiran-credentials')
-        DASHBOARD_URL            = 'http://host.docker.internal:5005'
         ELECTRICITY_MAPS_API_KEY = 'em_nGgVAPUefFX2qe8BkqzFgw3n8uGpJE2J'
 
         REMOTE_HOST         = '147.15.144.192'
@@ -318,9 +431,17 @@ pipeline {
                     env.WORK_DIR          = fileExists('pom.xml') ? '.' : 'green-release-demo'
                     env.DOCKER_PUSH_OK    = 'false'
                     env.DEPLOY_STRATEGY   = 'rolling'
+                    env.OPTIMIZER_EXECUTED = 'false'
+                    env.OPTIMIZER_SKIP_REASON = ''
                     env.RELEASE_MONITOR_STARTED  = 'false'
                     env.RELEASE_MONITOR_FINISHED = 'false'
                     env.RELEASE_MONITOR_SKIPPED  = 'false'
+                    env.RELEASE_STARTED           = 'false'
+                    env.RELEASE_START_MS          = ''
+                    env.RELEASE_END_MS            = ''
+                    env.RELEASE_START_TIME        = ''
+                    env.RELEASE_END_TIME          = ''
+                    env.RELEASE_DURATION          = ''
                     env.DEPLOY_MONITOR_STARTED   = 'false'
                     env.DEPLOY_MONITOR_FINISHED  = 'false'
                     env.DEPLOY_MONITOR_SKIPPED   = 'false'
@@ -436,26 +557,37 @@ pipeline {
             steps {
                 dir(env.WORK_DIR) {
                     script {
+                        markReleaseStart()
+                        if (!params.DRY_RUN) {
+                            startMonitorSession('release')
+                        }
+
                         if (params.FORCE_FULL_BUILD) {
                             echo "=== FORCE FULL BUILD ==="
                             echo "Skipping optimizer module analysis. Green AI strategy selection will run after the build."
 
                             // Force ALL modules to be built and tested
-                            env.OPTIMIZER_STATUS     = 'success'
-                            env.AFFECTED_MODULES     = 'all'
-                            env.MAVEN_BUILD_COMMANDS = 'mvn clean install -DskipTests'
-                            env.MAVEN_TEST_COMMANDS  = 'mvn test'
-                            env.OPTIMIZER_DURATION   = '0'
+                            env.OPTIMIZER_STATUS      = 'skipped'
+                            env.OPTIMIZER_EXECUTED    = 'false'
+                            env.OPTIMIZER_SKIP_REASON = 'force_full_build'
+                            env.AFFECTED_MODULES      = 'all'
+                            env.MAVEN_BUILD_COMMANDS  = 'mvn clean install -DskipTests'
+                            env.MAVEN_TEST_COMMANDS   = 'mvn test'
+                            env.OPTIMIZER_DURATION    = '0'
 
                             return
                         }
 
+                        env.OPTIMIZER_STATUS = 'failed'
+                        env.OPTIMIZER_EXECUTED = 'true'
+                        env.OPTIMIZER_SKIP_REASON = ''
+
                         def analyzeStart = System.currentTimeMillis()
                         def output = sh(
-                            script: '''
+                            script: '''set +x
                                 EXIT_CODE=0
                                 tar -C "$PWD" -cf - . | docker run --rm -i \
-                                  -e ELECTRICITY_MAPS_API_KEY="''' + (env.ELECTRICITY_MAPS_API_KEY ?: '') + '''" \
+                                  -e ELECTRICITY_MAPS_API_KEY="$ELECTRICITY_MAPS_API_KEY" \
                                   -e GIT_PREVIOUS_SUCCESSFUL_COMMIT="''' + env.GIT_PREVIOUS_SUCCESSFUL_COMMIT + '''" \
                                   -e GIT_PREVIOUS_COMMIT="''' + env.GIT_PREVIOUS_COMMIT + '''" \
                                   -e GIT_COMMIT="''' + env.GIT_COMMIT + '''" \
@@ -492,6 +624,7 @@ pipeline {
                         if (jsonLine) {
                             def result = new groovy.json.JsonSlurper().parseText(jsonLine)
                             env.OPTIMIZER_STATUS = result.status ?: 'unknown'
+                            env.OPTIMIZER_EXECUTED = 'true'
                             def buildCommands = []
                             def testCommands = []
                             for (action in result.actions) {
@@ -538,14 +671,23 @@ pipeline {
                                 env.CARBON_FORECAST   = mockCarbon.forecast
                             }
                         } else {
-                            env.OPTIMIZER_STATUS     = 'no_changes'
-                            env.MAVEN_BUILD_COMMANDS = ''
-                            env.MAVEN_TEST_COMMANDS  = ''
-                            env.AFFECTED_MODULES     = ''
+                            env.OPTIMIZER_STATUS      = 'no_changes'
+                            env.OPTIMIZER_EXECUTED    = 'true'
+                            env.OPTIMIZER_SKIP_REASON = 'no_changes'
+                            env.MAVEN_BUILD_COMMANDS  = ''
+                            env.MAVEN_TEST_COMMANDS   = ''
+                            env.AFFECTED_MODULES      = ''
                         }
 
                         if (params.DRY_RUN) {
+                            env.OPTIMIZER_SKIP_REASON = 'dry_run'
                             echo "=== DRY RUN MODE — Skipping build, test, Docker, and deploy stages ==="
+                        }
+                        if (!params.DRY_RUN && !releaseWorkPlanned()) {
+                            if (!env.OPTIMIZER_SKIP_REASON?.trim()) {
+                                env.OPTIMIZER_SKIP_REASON = env.OPTIMIZER_STATUS == 'no_changes' ? 'no_changes' : 'no_affected_components'
+                            }
+                            cancelMonitorSession('release')
                         }
                     }
                 }
@@ -626,25 +768,15 @@ pipeline {
             }
             steps {
                 script {
+                    markReleaseEnd()
                     skipMonitorSession('release', releaseSkipReason())
-                }
-            }
-        }
-
-        stage('Start Release Monitor') {
-            when {
-                expression { releaseWorkPlanned() }
-            }
-            steps {
-                script {
-                    startMonitorSession('release')
                 }
             }
         }
 
         stage('Selective Build') {
             when {
-                expression { !params.DRY_RUN && env.OPTIMIZER_STATUS == 'success' && env.MAVEN_BUILD_COMMANDS?.trim() }
+                expression { releaseWorkPlanned() && env.MAVEN_BUILD_COMMANDS?.trim() }
             }
             steps {
                 dir(env.WORK_DIR) {
@@ -663,7 +795,7 @@ pipeline {
 
         stage('Selective Test') {
             when {
-                expression { !params.DRY_RUN && env.OPTIMIZER_STATUS == 'success' && env.MAVEN_TEST_COMMANDS?.trim() }
+                expression { releaseWorkPlanned() && env.MAVEN_TEST_COMMANDS?.trim() }
             }
             steps {
                 dir(env.WORK_DIR) {
@@ -727,6 +859,7 @@ pipeline {
             }
             steps {
                 script {
+                    markReleaseEnd()
                     finishMonitorSession('release')
                 }
             }
@@ -949,7 +1082,6 @@ pipeline {
                 if (appAffected() && !params.DRY_RUN) {
                     def img = "${DOCKER_IMAGE}:${DOCKER_TAG}"
                     notifyEnd(status: 'SUCCESS', image: img)
-                    echo "Deployment complete — Strategy: ${env.DEPLOY_STRATEGY} | Carbon: ${env.CARBON_RATING}"
                 }
             }
             dir(env.WORK_DIR) {
@@ -972,72 +1104,40 @@ pipeline {
 
         always {
             script {
-                finishMonitorSession('release')
-                finishMonitorSession('deploy')
+                def buildWasAborted = currentBuild.currentResult == 'ABORTED'
+
+                if (env.IS_RESCHEDULED == 'true' || buildWasAborted) {
+                    echo "[Monitor] Aborted/rescheduled build detected — cancelling active monitor sessions. No lifecycle record will be persisted."
+
+                    cancelMonitorSession('release')
+                    cancelMonitorSession('deploy')
+                } else {
+                    markReleaseEnd()
+                    finishMonitorSession('release')
+                    finishMonitorSession('deploy')
+                }
             }
 
             dir(env.WORK_DIR) {
                 script {
                     def totalDuration = (System.currentTimeMillis() - env.PIPELINE_START.toLong()) / 1000.0
                     def currentStatus = currentBuild.currentResult ?: 'UNKNOWN'
+                    def telemetryBuildWasAborted = currentStatus == 'ABORTED'
                     if (env.IS_RESCHEDULED == 'true') currentStatus = 'RESCHEDULED'
 
                     if (env.DEPLOY_START_MS) {
                         env.DEPLOY_DURATION = ((System.currentTimeMillis() - env.DEPLOY_START_MS.toLong()) / 1000.0).toString()
                     }
 
-                    def cleanCommitMsg = (env.COMMIT_MSG ?: '').replaceAll('"', '\\\\"')
-                    def jsonPayload = """{
-                        "job_name": "${env.JOB_NAME}",
-                        "build_number": "${env.BUILD_NUMBER}",
-                        "pipeline_type": "optimized_build_and_deploy",
-                        "commit_sha": "${env.COMMIT_SHA ?: ''}",
-                        "commit_message": "${cleanCommitMsg}",
-                        "status": "${currentStatus}",
-                        "total_duration_s": ${totalDuration},
-                        "build_duration_s": ${env.BUILD_DURATION ?: 'null'},
-                        "test_duration_s": ${env.TEST_DURATION ?: 'null'},
-                        "docker_duration_s": ${env.DOCKER_BUILD_DURATION ?: 'null'},
-                        "deploy_duration_s": ${env.DEPLOY_DURATION ?: 'null'},
-                        "optimizer_duration_s": ${env.OPTIMIZER_DURATION ?: 'null'},
-                        "modules_built": "${env.AFFECTED_MODULES ?: ''}",
-                        "modules_tested": "${env.AFFECTED_MODULES ?: ''}",
-                        "tests_executed": ${env.TESTS_EXECUTED ?: 0},
-                        "tests_skipped": ${env.TESTS_SKIPPED ?: 0},
-                        "module_details": "${env.MODULE_DETAILS ?: ''}",
-                        "build_command": "${(env.MAVEN_BUILD_COMMANDS ?: '').replaceAll('"', '\\\\"')}",
-                        "test_command": "${(env.MAVEN_TEST_COMMANDS ?: '').replaceAll('"', '\\\\"')}",
-                        "carbon_intensity": ${env.CARBON_INTENSITY ?: 'null'},
-                        "green_probability": ${env.GREEN_PROBABILITY ?: 'null'},
-                        "scheduling_action": "${env.SCHEDULING_ACTION ?: ''}",
-                        "scheduling_engine": "${env.SCHEDULING_ENGINE ?: ''}",
-                        "carbon_history": ${env.CARBON_HISTORY ?: '[]'},
-                        "carbon_forecast": ${env.CARBON_FORECAST ?: '[]'},
-                        "deploy_strategy": "${env.DEPLOY_STRATEGY ?: ''}",
-                        "combined_confidence": ${env.COMBINED_CONFIDENCE ?: 'null'},
-                        "ml_green_probability": ${env.ML_GREEN_PROBABILITY ?: 'null'},
-                        "ai_confidence": ${env.AI_CONFIDENCE ?: 'null'},
-                        "both_schedulers_agree": "${env.BOTH_SCHEDULERS_AGREE ?: ''}",
-                        "scheduling_reason": "${(env.SCHEDULING_REASON ?: '').replaceAll('"', '\\\\"')}"
-                    }"""
-
-                    writeFile file: 'dashboard_payload.json', text: jsonPayload
-
-                    sh """
-                        curl -s -X POST ${DASHBOARD_URL}/api/builds \
-                            -H "Content-Type: application/json" \
-                            -d @dashboard_payload.json || \
-                        curl -s -X POST http://localhost:5005/api/builds \
-                            -H "Content-Type: application/json" \
-                            -d @dashboard_payload.json || \
-                        curl -s -X POST http://127.0.0.1:5005/api/builds \
-                            -H "Content-Type: application/json" \
-                            -d @dashboard_payload.json || \
-                        curl -s -X POST http://172.17.0.1:5005/api/builds \
-                            -H "Content-Type: application/json" \
-                            -d @dashboard_payload.json || \
-                        echo "Failed to send metrics to dashboard."
-                    """
+                    if (env.RELEASE_STARTED == 'true' && env.IS_RESCHEDULED != 'true' && !telemetryBuildWasAborted) {
+                        try {
+                            writeReleaseMetricsCsv(currentStatus)
+                        } catch (Exception telemetryError) {
+                            echo "[ReleaseMetrics] WARNING: CSV telemetry write failed: ${telemetryError}. Pipeline result will not be changed."
+                        }
+                    } else {
+                        echo "[ReleaseMetrics] No completed Release telemetry row written for this build."
+                    }
                 }
 
                 sh "docker rmi ${DOCKER_IMAGE}:${DOCKER_TAG} || true"

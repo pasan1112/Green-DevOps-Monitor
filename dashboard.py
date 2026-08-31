@@ -32,8 +32,8 @@ app = Flask(__name__)
 MONGO_DB_NAME = "green_devops_monitor"
 MONGO_COLLECTION_NAME = "pipeline_metrics"
 CSV_FALLBACK_PATH = "data/metrics.csv"
+RELEASE_CSV_PATH = "data/release_metrics.csv"
 DEPLOY_DB_PATH = "/opt/energy-profiller-hiran/deployments.db"
-RELEASE_API_BUILDS_URL = "http://release-dashboard:5050/api/builds"
 
 NUMERIC_COLS = [
     "duration_seconds",
@@ -109,10 +109,6 @@ def extract_build_number_from_run_id(run_id):
     return candidate if candidate.isdigit() else ""
 
 
-def _release_api_url():
-    return os.getenv("RELEASE_API_BUILDS_URL", RELEASE_API_BUILDS_URL)
-
-
 def _normalize_release_key_part(value):
     return " ".join(str(value or "").strip().split())
 
@@ -125,32 +121,31 @@ def release_build_key(build):
     return f"{job_name}-{build_number}"
 
 
-def load_release_builds(api_url=None, timeout_seconds=3):
-    """Read Release build records from the Release dashboard API without mutating anything."""
-    try:
-        import requests
-    except ImportError:
-        print("[Release API] WARNING: requests is not installed. Continuing with Monitor data only.")
+def resolve_release_csv_path(csv_path=None):
+    candidates = [
+        csv_path,
+        os.getenv("RELEASE_CSV_PATH"),
+        RELEASE_CSV_PATH,
+    ]
+    for candidate in candidates:
+        if candidate and os.path.exists(candidate):
+            return candidate
+    return csv_path or os.getenv("RELEASE_CSV_PATH") or RELEASE_CSV_PATH
+
+
+def load_release_builds(csv_path=None):
+    """Read Release-stage telemetry written by Jenkins without mutating Monitor data."""
+    path = resolve_release_csv_path(csv_path)
+    if not os.path.exists(path):
         return []
 
-    url = api_url or _release_api_url()
     try:
-        response = requests.get(url, timeout=timeout_seconds)
-        response.raise_for_status()
-        payload = response.json()
+        frame = pd.read_csv(path, dtype=str, keep_default_na=False)
     except Exception as exc:
-        print(f"[Release API] WARNING: Release builds unavailable from {url}. Continuing with Monitor data only. Error: {exc}")
+        print(f"[Release CSV] WARNING: Release metrics unavailable from {path}. Continuing with Monitor data only. Error: {exc}")
         return []
 
-    if isinstance(payload, list):
-        return [item for item in payload if isinstance(item, dict)]
-    if isinstance(payload, dict):
-        for key in ("builds", "data", "records", "results"):
-            value = payload.get(key)
-            if isinstance(value, list):
-                return [item for item in value if isinstance(item, dict)]
-    print("[Release API] WARNING: Release builds response was not a list of records. Continuing with Monitor data only.")
-    return []
+    return frame.to_dict(orient="records")
 
 
 def find_release_build_for_run(run_id, builds):
@@ -615,25 +610,36 @@ def format_release_list(value):
 def format_release_build_data(build):
     if not build:
         return None
-    status = format_optional_text(build.get("status"))
+    status = format_optional_text(build.get("release_status") or build.get("status"))
     pipeline_type = format_optional_text(build.get("pipeline_type"))
     scheduling_action = format_optional_text(build.get("scheduling_action"))
     scheduling_engine = format_optional_text(build.get("scheduling_engine"))
-    decision_context = " ".join([pipeline_type, scheduling_action, scheduling_engine]).lower()
+    optimizer_status = format_optional_text(build.get("optimizer_status"))
+    optimizer_executed = format_optional_text(build.get("optimizer_executed"))
+    optimizer_skip_reason = format_optional_text(build.get("optimizer_skip_reason"))
+    decision_context = " ".join([pipeline_type, scheduling_action, scheduling_engine, optimizer_status, optimizer_skip_reason]).lower()
     is_full_build = any(token in decision_context for token in ("force_full_build", "full build", "full_build", "force full"))
-    optimizer_bypassed = is_full_build or "bypass" in decision_context
+    optimizer_bypassed = is_full_build or "bypass" in decision_context or optimizer_status.lower() == "skipped"
+    optimizer_applied = optimizer_executed.lower() == "true" and optimizer_status.lower() not in {"not available", "skipped", "no_changes"}
     return {
         "status_display": status.upper() if status != "Not available" else status,
-        "pipeline_type_display": pipeline_type.replace("_", " ").title(),
+        "pipeline_type_display": pipeline_type.replace("_", " ").title() if pipeline_type != "Not available" else "Jenkins Release Telemetry",
         "green_probability_display": format_release_probability(build.get("green_probability")),
         "scheduling_action_display": scheduling_action.replace("_", " ").title(),
         "scheduling_engine_display": scheduling_engine,
-        "execution_mode_display": "Full Build" if is_full_build else ("Selective / Optimized" if pipeline_type != "Not available" or scheduling_action != "Not available" else "Not available"),
-        "optimization_status_display": "Bypassed" if optimizer_bypassed else ("Applied" if scheduling_action != "Not available" or scheduling_engine != "Not available" else "Not available"),
+        "execution_mode_display": "Full Build" if is_full_build else ("Selective / Optimized" if build.get("affected_modules") else "Not available"),
+        "optimization_status_display": "Bypassed" if optimizer_bypassed else ("Applied" if optimizer_applied else optimizer_status.replace("_", " ").title()),
+        "optimizer_status_display": optimizer_status.replace("_", " ").title(),
+        "optimizer_duration_display": format_release_seconds(build.get("optimizer_duration_s")),
+        "optimizer_executed_display": optimizer_executed,
+        "optimizer_skip_reason_display": optimizer_skip_reason.replace("_", " ").title(),
+        "release_duration_display": format_release_seconds(build.get("release_duration_s")),
+        "release_start_display": format_optional_text(build.get("release_start_time")),
+        "release_end_display": format_optional_text(build.get("release_end_time")),
         "context_note": (
             "Full build means Release optimization or scheduling was bypassed; Monitor lifecycle status still reflects actual execution."
             if optimizer_bypassed
-            else "Release API provides decision context; Monitor remains the source for measured execution results."
+            else "Release CSV provides Jenkins execution context; Monitor remains the source for measured sustainability results."
         ),
         "carbon_intensity_display": format_release_intensity(build.get("carbon_intensity")),
         "affected_modules_display": format_release_list(build.get("affected_modules")),
@@ -641,8 +647,9 @@ def format_release_build_data(build):
         "tests_skipped_display": format_release_count(build.get("tests_skipped")),
         "build_duration_display": format_release_seconds(build.get("build_duration_s")),
         "test_duration_display": format_release_seconds(build.get("test_duration_s")),
-        "deploy_duration_display": format_release_seconds(build.get("deploy_duration_s")),
-        "total_duration_display": format_release_seconds(build.get("total_duration_s")),
+        "docker_build_duration_display": format_release_seconds(build.get("docker_build_duration_s") or build.get("docker_duration_s")),
+        "build_command_display": format_optional_text(build.get("build_command")),
+        "test_command_display": format_optional_text(build.get("test_command")),
     }
 
 
@@ -3327,7 +3334,7 @@ APP_HTML = """
                         {% endif %}
                     </div>
                     <div class="release-panel release-split-card">
-                        <div class="release-fact"><div><p class="run-label">Release Status</p><p class="home-widget-note">Monitor lifecycle result</p></div><p class="release-fact-value">{{ release_row.status_display if release_row else stage_detail.summary_status }}</p></div>
+                        <div class="release-fact"><div><p class="run-label">Release Status</p><p class="home-widget-note">Jenkins release result</p></div><p class="release-fact-value">{{ stage_detail.release_data.status_display if stage_detail.release_data else (release_row.status_display if release_row else stage_detail.summary_status) }}</p></div>
                         <div class="release-fact"><div><p class="run-label">Execution Mode</p><p class="home-widget-note">Release component context</p></div><p class="release-fact-value">{{ stage_detail.release_data.execution_mode_display if stage_detail.release_data else 'Not available' }}</p></div>
                         <div class="release-fact"><div><p class="run-label">Optimization</p><p class="home-widget-note">Decision outcome</p></div><p class="release-fact-value">{{ stage_detail.release_data.optimization_status_display if stage_detail.release_data else 'Not available' }}</p></div>
                     </div>
@@ -3361,7 +3368,7 @@ APP_HTML = """
                         <div class="home-section-heading !p-0">
                             <div>
                                 <p class="home-eyebrow">Release Decision</p>
-                                <h2>Decision context returned by the Release component</h2>
+                                <h2>Decision context recorded by Jenkins</h2>
                             </div>
                             <p>RELEASE DECISION explains why this lifecycle ran the way it did.</p>
                         </div>
@@ -3377,9 +3384,11 @@ APP_HTML = """
                                 <div class="release-mini"><p class="run-label">Scheduling Action</p><p class="release-mini-value">{{ stage_detail.release_data.scheduling_action_display }}</p></div>
                                 <div class="release-mini"><p class="run-label">Optimization Status</p><p class="release-mini-value {% if stage_detail.release_data.optimization_status_display == 'Bypassed' %}text-[var(--home-warning)]{% elif stage_detail.release_data.optimization_status_display == 'Applied' %}text-[var(--home-accent-energy)]{% endif %}">{{ stage_detail.release_data.optimization_status_display }}</p></div>
                                 <div class="release-mini"><p class="run-label">Execution Mode</p><p class="release-mini-value">{{ stage_detail.release_data.execution_mode_display }}</p></div>
-                                <div class="release-mini"><p class="run-label">Pipeline Type</p><p class="release-mini-value">{{ stage_detail.release_data.pipeline_type_display }}</p></div>
+                                <div class="release-mini"><p class="run-label">Optimizer Executed</p><p class="release-mini-value">{{ stage_detail.release_data.optimizer_executed_display }}</p></div>
                                 <div class="release-mini"><p class="run-label">Scheduling Engine</p><p class="release-mini-value">{{ stage_detail.release_data.scheduling_engine_display }}</p></div>
                                 <div class="release-mini"><p class="run-label">Release Carbon Intensity</p><p class="release-mini-value">{{ stage_detail.release_data.carbon_intensity_display }}</p></div>
+                                <div class="release-mini"><p class="run-label">Optimizer Duration</p><p class="release-mini-value">{{ stage_detail.release_data.optimizer_duration_display }}</p></div>
+                                <div class="release-mini"><p class="run-label">Skip Reason</p><p class="release-mini-value">{{ stage_detail.release_data.optimizer_skip_reason_display }}</p></div>
                             </div>
                         </div>
                         <div class="release-alert mt-4">{{ stage_detail.release_data.context_note }}</div>
@@ -3400,12 +3409,14 @@ APP_HTML = """
                             <div class="release-mini"><p class="run-label">Affected Modules</p><p class="release-mini-value">{{ stage_detail.release_data.affected_modules_display }}</p></div>
                             <div class="release-mini"><p class="run-label">Tests Executed</p><p class="release-mini-value">{{ stage_detail.release_data.tests_executed_display }}</p></div>
                             <div class="release-mini"><p class="run-label">Tests Skipped</p><p class="release-mini-value">{{ stage_detail.release_data.tests_skipped_display }}</p></div>
+                            <div class="release-mini"><p class="run-label">Release Started</p><p class="release-mini-value">{{ stage_detail.release_data.release_start_display }}</p></div>
+                            <div class="release-mini"><p class="run-label">Release Ended</p><p class="release-mini-value">{{ stage_detail.release_data.release_end_display }}</p></div>
                         </div>
                         <div class="release-flow">
                             <div class="release-step"><p class="run-label">Build</p><p class="release-mini-value">{{ stage_detail.release_data.build_duration_display }}</p></div>
                             <div class="release-step"><p class="run-label">Test</p><p class="release-mini-value">{{ stage_detail.release_data.test_duration_display }}</p></div>
-                            <div class="release-step"><p class="run-label">Deploy Phase</p><p class="release-mini-value">{{ stage_detail.release_data.deploy_duration_display }}</p></div>
-                            <div class="release-step"><p class="run-label">Release Total</p><p class="release-mini-value">{{ stage_detail.release_data.total_duration_display }}</p></div>
+                            <div class="release-step"><p class="run-label">Docker Build</p><p class="release-mini-value">{{ stage_detail.release_data.docker_build_duration_display }}</p></div>
+                            <div class="release-step"><p class="run-label">Release Total</p><p class="release-mini-value">{{ stage_detail.release_data.release_duration_display }}</p></div>
                         </div>
                         {% else %}
                         <p class="release-text font-bold mt-4">Release work context unavailable for this run.</p>
