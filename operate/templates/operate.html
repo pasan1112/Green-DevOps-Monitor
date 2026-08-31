@@ -42,8 +42,8 @@
         <main class="operate-main">
             <section class="operate-hero">
                 <div>
-                    <p class="operate-eyebrow">Operation Stage Status</p>
-                    <h1>Operate</h1>
+                    <p class="operate-eyebrow">Operation Phase / Live Runtime Optimization</p>
+                    <h1>Green DevOps <span>Operate</span></h1>
                     <p class="operate-muted">Runtime metrics, workload prediction, job prioritization, carbon optimization, and Kubernetes scaling decisions.</p>
                 </div>
                 <div class="operate-live">
@@ -110,7 +110,7 @@
                         <h2>LSTM Prediction Output</h2>
                     </div>
                     <div id="predictionEmpty" class="empty-state">Waiting for workload prediction</div>
-                    <div class="kpi-grid">
+                    <div class="kpi-grid prediction-grid">
                         <div class="kpi"><p>Predicted CPU</p><strong data-format="percent-value" data-field="latest_prediction.cpu_percent">Waiting</strong></div>
                         <div class="kpi"><p>Predicted Load</p><strong data-field="latest_prediction.load_level">Waiting</strong></div>
                         <div class="kpi"><p>Initial Recommended Pods</p><strong data-field="latest_prediction.pods">Waiting</strong></div>
@@ -124,7 +124,7 @@
                         <h2>Replica Decision Path</h2>
                     </div>
                     <div id="kubernetesEmpty" class="empty-state">Kubernetes connection unavailable</div>
-                    <div class="kpi-grid">
+                    <div class="kpi-grid kubernetes-grid">
                         <div class="kpi"><p>Current Kubernetes Pods</p><strong data-field="kubernetes.actual_replicas">Waiting</strong></div>
                         <div class="kpi"><p>Initial / Raw Required Pods</p><strong data-field="carbon.raw_required_pods">Waiting</strong></div>
                         <div class="kpi"><p>Optimized Required Pods</p><strong data-field="carbon.optimized_required_pods">Waiting</strong></div>

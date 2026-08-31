@@ -1155,7 +1155,7 @@ def build_stage_baseline_context(stage_key, stat_alerts, ml_items):
 
 
 def build_lifecycle_sections(display_rows, statistical_alerts, ml_results, deploy_component_data=None):
-    """Group normalized Monitor lifecycle data under Release, Deploy, and Operate labels."""
+    """Group normalized Monitor lifecycle data under Release and Deploy labels."""
     stage_rows = display_rows.to_dict(orient="records") if display_rows is not None and not display_rows.empty else []
     stage_lookup = {str(row.get("stage", "")).lower(): row for row in stage_rows}
 
@@ -1181,13 +1181,6 @@ def build_lifecycle_sections(display_rows, statistical_alerts, ml_results, deplo
             "icon": "rocket",
             "source_stages": ["deploy"],
             "note": "Current monitor data from Deploy lifecycle records.",
-        },
-        {
-            "key": "operate",
-            "label": "Operate",
-            "icon": "activity",
-            "source_stages": ["operate"],
-            "note": "Current monitor data from Operate observation windows.",
         },
     ]
 
@@ -2258,7 +2251,7 @@ HTML = """
                         <a href="#home" class="flex items-center gap-2 rounded-lg px-3 py-2 text-slate-700 hover:bg-slate-50"><i data-lucide="home" class="w-4 h-4"></i>Home</a>
                         <a href="#runs" class="flex items-center gap-2 rounded-lg px-3 py-2 text-slate-700 hover:bg-slate-50"><i data-lucide="history" class="w-4 h-4"></i>Runs</a>
                         <a href="#run-overview" class="flex items-center gap-2 rounded-lg px-3 py-2 text-slate-700 hover:bg-slate-50"><i data-lucide="layout-dashboard" class="w-4 h-4"></i>Run Overview</a>
-                        <a href="#lifecycle" class="flex items-center gap-2 rounded-lg px-3 py-2 text-slate-700 hover:bg-slate-50"><i data-lucide="workflow" class="w-4 h-4"></i>Release | Deploy | Operate</a>
+                        <a href="#lifecycle" class="flex items-center gap-2 rounded-lg px-3 py-2 text-slate-700 hover:bg-slate-50"><i data-lucide="workflow" class="w-4 h-4"></i>Release | Deploy</a>
                     </div>
                 </nav>
 
@@ -2381,9 +2374,9 @@ HTML = """
                             </div>
                         </div>
 
-                        <div id="lifecycle" class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                        <div id="lifecycle" class="grid grid-cols-1 md:grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] gap-4 md:gap-5 items-stretch">
                             {% for lifecycle in lifecycle_sections %}
-                            <a href="#stage-{{ lifecycle.key }}" class="rounded-xl border border-slate-200 p-4 hover:border-emerald-300 hover:bg-emerald-50/40 transition-colors">
+                            <a href="#stage-{{ lifecycle.key }}" class="rounded-xl border border-slate-200 bg-white/80 p-5 hover:border-emerald-300 hover:bg-emerald-50/40 transition-colors min-h-[150px] flex flex-col justify-between">
                                 <div class="flex items-center justify-between">
                                     <div class="flex items-center gap-2">
                                         <i data-lucide="{{ lifecycle.icon }}" class="w-5 h-5 text-emerald-600"></i>
@@ -2393,6 +2386,13 @@ HTML = """
                                 </div>
                                 <p class="text-xs text-slate-500 mt-3">{{ lifecycle.note }}</p>
                             </a>
+                            {% if not loop.last %}
+                            <div class="hidden md:flex items-center justify-center" aria-hidden="true">
+                                <span class="inline-flex h-10 w-10 items-center justify-center rounded-full border border-emerald-200 bg-emerald-50 text-emerald-700 shadow-sm">
+                                    <i data-lucide="arrow-right" class="w-5 h-5"></i>
+                                </span>
+                            </div>
+                            {% endif %}
                             {% endfor %}
                         </div>
                     </div>
@@ -2401,7 +2401,7 @@ HTML = """
                 <section class="space-y-5">
                     <div>
                         <p class="text-xs font-bold uppercase tracking-[0.2em] text-emerald-600 mb-2">Stage Detail</p>
-                        <h2 class="text-2xl font-extrabold text-slate-900">Release | Deploy | Operate</h2>
+                        <h2 class="text-2xl font-extrabold text-slate-900">Release | Deploy</h2>
                         <p class="text-sm text-slate-600 mt-2">This phase displays only existing Monitor metrics. Component-specific PP2 data will be added later.</p>
                     </div>
 
