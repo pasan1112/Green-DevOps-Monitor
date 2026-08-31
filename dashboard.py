@@ -514,6 +514,15 @@ def format_optional_text(value):
     return text if text else "Not available"
 
 
+def optional_numeric(value):
+    if value is None or pd.isna(value):
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
 def format_optional_count(value):
     if value is None or pd.isna(value):
         return "Not available"
@@ -2933,6 +2942,41 @@ APP_HTML = """
         .lifecycle-metric-value.carbon { color: var(--home-accent-carbon); }
         .lifecycle-link { margin-top: auto; padding-top: .95rem; display: inline-flex; align-items: center; gap: .45rem; color: var(--home-accent-energy); font-size: .94rem; font-weight: 900; transition: color .16s ease; }
         .lifecycle-link:hover { color: var(--home-accent-carbon); }
+        .compare-hero { position: relative; z-index: 1; display: grid; grid-template-columns: minmax(0, 1.3fr) minmax(280px, .7fr); gap: 1rem; align-items: stretch; padding-top: 1rem; }
+        .compare-hero-card, .compare-panel, .compare-run-card, .compare-summary-card { border: 1px solid var(--home-border); background: linear-gradient(145deg, var(--home-surface-strong), var(--home-surface)); border-radius: 1.45rem; padding: 1rem; box-shadow: var(--home-shadow-soft); backdrop-filter: blur(18px); }
+        .compare-title { margin-top: .55rem; color: var(--home-text); font-size: clamp(2.35rem, 5vw, 4rem); line-height: .94; font-weight: 900; letter-spacing: 0; }
+        .compare-title span { color: var(--home-accent-energy); }
+        .compare-subtitle { margin-top: .8rem; max-width: 780px; color: var(--home-text-secondary); font-size: .98rem; line-height: 1.58; font-weight: 650; }
+        .compare-selector-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1rem; }
+        .compare-selector-card { border: 1px solid var(--home-border); background: var(--home-surface-muted); border-radius: 1.15rem; padding: .9rem; }
+        .compare-input { width: 100%; margin-top: .65rem; border: 1px solid var(--home-border); background: var(--home-surface-strong); color: var(--home-text); border-radius: .9rem; padding: .78rem .85rem; font-size: .9rem; font-weight: 750; outline: none; }
+        .compare-input:focus { border-color: rgba(var(--home-accent-energy-rgb), .55); box-shadow: 0 0 0 3px rgba(var(--home-accent-energy-rgb), .14); }
+        .compare-actions { display: flex; flex-wrap: wrap; gap: .6rem; align-items: center; margin-top: .9rem; }
+        .compare-button { display: inline-flex; align-items: center; gap: .4rem; border-radius: 999px; background: rgba(var(--home-accent-energy-rgb), .16); color: var(--home-accent-energy); border: 1px solid rgba(var(--home-accent-energy-rgb), .24); padding: .62rem .9rem; font-size: .84rem; font-weight: 900; transition: background .16s ease, color .16s ease; }
+        .compare-button:hover { color: var(--home-accent-carbon); background: rgba(var(--home-accent-carbon-rgb), .14); border-color: rgba(var(--home-accent-carbon-rgb), .24); }
+        .compare-run-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1rem; }
+        .compare-run-card { min-height: 238px; display: flex; flex-direction: column; }
+        .compare-run-head { display: flex; align-items: flex-start; justify-content: space-between; gap: .9rem; padding-bottom: .9rem; border-bottom: 1px solid var(--home-border); }
+        .compare-run-title { color: var(--home-text); font-size: clamp(1.3rem, 2.3vw, 1.9rem); line-height: 1.08; font-weight: 900; overflow-wrap: anywhere; }
+        .compare-run-meta { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .65rem; margin-top: 1rem; }
+        .compare-mini { border: 1px solid var(--home-border); background: var(--home-surface-muted); border-radius: .95rem; padding: .72rem; min-height: 76px; }
+        .compare-mini-value { margin-top: .35rem; color: var(--home-text); font-size: .92rem; line-height: 1.25; font-weight: 900; overflow-wrap: anywhere; }
+        .compare-main-grid { display: grid; gap: .85rem; padding: 1rem; }
+        .compare-vs-card { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); gap: .85rem; align-items: stretch; border: 1px solid var(--home-border); background: var(--home-surface-muted); border-radius: 1.15rem; padding: .85rem; }
+        .compare-side { border: 1px solid var(--home-border); background: var(--home-surface-strong); border-radius: 1rem; padding: .95rem; min-height: 132px; display: flex; flex-direction: column; justify-content: center; }
+        .compare-side.better { background: rgba(var(--home-accent-energy-rgb), .13); border-color: rgba(var(--home-accent-energy-rgb), .30); box-shadow: inset 0 0 0 1px rgba(var(--home-accent-energy-rgb), .08); }
+        .compare-side.worse, .compare-side.equal, .compare-side.neutral { background: rgba(245, 158, 11, .11); border-color: rgba(245, 158, 11, .26); }
+        .compare-side-label { color: var(--home-text-muted); font-size: .68rem; font-weight: 900; letter-spacing: .1em; text-transform: uppercase; }
+        .compare-side-value { margin-top: .5rem; color: var(--home-text); font-size: clamp(1.65rem, 3vw, 2.55rem); line-height: 1; font-weight: 900; overflow-wrap: anywhere; }
+        .compare-side.better .compare-side-value { color: var(--home-accent-energy); }
+        .compare-result { margin-top: .72rem; display: inline-flex; align-items: center; gap: .38rem; width: fit-content; max-width: 100%; border-radius: 999px; padding: .34rem .58rem; font-size: .74rem; font-weight: 900; text-transform: uppercase; color: var(--home-text-muted); }
+        .compare-side.better .compare-result { color: var(--home-accent-energy); background: rgba(var(--home-accent-energy-rgb), .12); }
+        .compare-side.worse .compare-result, .compare-side.equal .compare-result, .compare-side.neutral .compare-result { color: var(--home-warning); background: rgba(245, 158, 11, .11); }
+        .compare-center { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: .55rem; min-width: 132px; text-align: center; }
+        .compare-center-label { color: var(--home-text); font-size: .78rem; line-height: 1.2; font-weight: 950; letter-spacing: .1em; text-transform: uppercase; }
+        .compare-metric-icon { width: 2.1rem; height: 2.1rem; display: inline-flex; align-items: center; justify-content: center; border-radius: .78rem; background: rgba(var(--home-accent-energy-rgb), .13); color: var(--home-accent-energy); border: 1px solid rgba(var(--home-accent-energy-rgb), .22); }
+        .compare-empty { border: 1px dashed var(--home-border-strong); background: var(--home-surface-muted); border-radius: 1.35rem; padding: 1.4rem; color: var(--home-text-secondary); }
+        .compare-alert { border: 1px solid rgba(245, 158, 11, .28); background: rgba(245, 158, 11, .11); color: var(--home-warning); border-radius: 1rem; padding: .85rem; font-size: .86rem; font-weight: 800; }
         .release-page { position: relative; z-index: 1; }
         .release-hero { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(280px, .85fr); gap: 1rem; align-items: stretch; padding-top: 1rem; }
         .release-panel { border: 1px solid var(--home-border); background: linear-gradient(145deg, var(--home-surface-strong), var(--home-surface)); border-radius: 1.45rem; padding: 1rem; box-shadow: var(--home-shadow-soft); backdrop-filter: blur(18px); overflow: hidden; }
@@ -3031,13 +3075,17 @@ APP_HTML = """
             .runs-row > :nth-child(2), .runs-row > :nth-child(3), .runs-row > :nth-child(4) { grid-column: auto; }
             .runs-row > :last-child { grid-column: 2; grid-row: 1 / span 2; }
             .runs-id, .runs-pipeline { max-width: 100%; }
-            .run-hero, .run-health-panel, .run-summary-strip, .lifecycle-grid { grid-template-columns: 1fr; }
+            .run-hero, .run-health-panel, .run-summary-strip, .lifecycle-grid, .compare-hero, .compare-selector-grid, .compare-run-grid { grid-template-columns: 1fr; }
+            .compare-vs-card { grid-template-columns: 1fr; }
+            .compare-center { min-width: 0; order: -1; }
             .run-pipeline { white-space: normal; }
             .release-hero, .release-measure-grid, .release-two-col, .release-decision-primary, .release-decision-grid, .release-work-grid, .release-flow, .release-intel-grid, .deploy-hero, .deploy-measure-grid, .deploy-two-col, .deploy-mini-grid, .deploy-resource-grid, .deploy-snapshot-grid, .deploy-intel-grid { grid-template-columns: 1fr; }
         }
         @media (min-width: 768px) and (max-width: 1179px) {
             .run-summary-strip { grid-template-columns: repeat(3, minmax(0, 1fr)); }
             .lifecycle-grid { grid-template-columns: 1fr; }
+            .compare-hero, .compare-run-grid, .compare-selector-grid { grid-template-columns: 1fr; }
+            .compare-center { min-width: 112px; }
             .release-measure-grid, .release-intel-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
             .release-two-col { grid-template-columns: 1fr; }
             .deploy-measure-grid, .deploy-intel-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
@@ -3047,7 +3095,7 @@ APP_HTML = """
 </head>
 {% set release_stage_page = page == 'stage' and stage_detail is defined and stage_detail.key == 'release' %}
 {% set deploy_stage_page = page == 'stage' and stage_detail is defined and stage_detail.key == 'deploy' %}
-{% set themed_page = page == 'home' or page == 'runs' or page == 'run' or release_stage_page or deploy_stage_page %}
+{% set themed_page = page == 'home' or page == 'runs' or page == 'run' or page == 'compare' or release_stage_page or deploy_stage_page %}
 <body class="p-4 md:p-8 {% if page == 'home' %}home-body themed-body{% elif themed_page %}themed-body{% endif %}">
     <div class="{% if themed_page %}home-shell{% else %}max-w-[1500px] mx-auto{% endif %} space-y-6">
         <header class="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4 {% if themed_page %}home-header{% endif %}">
@@ -3061,6 +3109,7 @@ APP_HTML = """
             <div class="flex flex-wrap items-center gap-2">
                 <a href="/" class="{% if page == 'home' %}home-nav-link active{% elif themed_page %}home-nav-link{% else %}rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50{% endif %}"><i data-lucide="house" class="{% if themed_page %}w-4 h-4{% else %}hidden{% endif %}"></i>Home</a>
                 <a href="/runs" class="{% if page == 'runs' or page == 'run' or release_stage_page or deploy_stage_page %}home-nav-link active{% elif themed_page %}home-nav-link{% else %}rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50{% endif %}"><i data-lucide="list" class="{% if themed_page %}w-4 h-4{% else %}hidden{% endif %}"></i>Runs</a>
+                <a href="/compare" class="{% if page == 'compare' %}home-nav-link active{% elif themed_page %}home-nav-link{% else %}rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50{% endif %}"><i data-lucide="columns-3" class="{% if themed_page %}w-4 h-4{% else %}hidden{% endif %}"></i>Compare</a>
                 <a href="/operate" class="{% if themed_page %}home-nav-link{% else %}rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50{% endif %}"><i data-lucide="activity" class="{% if themed_page %}w-4 h-4{% else %}hidden{% endif %}"></i>Operate</a>
                 {% if release_stage_page or deploy_stage_page %}<a href="/run/{{ selected_run|urlencode }}" class="home-nav-link"><i data-lucide="arrow-left" class="w-4 h-4"></i>Back to Run</a>{% endif %}
                 {% if themed_page %}
@@ -3220,6 +3269,113 @@ APP_HTML = """
                     </div>
                 </div>
             </section>
+        </main>
+        {% elif page == 'compare' %}
+        <main class="space-y-6">
+            <section class="compare-hero">
+                <div class="compare-hero-card">
+                    <p class="home-eyebrow">Run Comparison</p>
+                    <h1 class="compare-title">Green DevOps <span>Compare</span></h1>
+                    <p class="compare-subtitle">Select any two historical pipeline executions. Run A is the reference, and Run B is compared against it for runtime, energy, carbon, resources, and health.</p>
+                </div>
+                <div class="compare-hero-card">
+                    <p class="run-label">Comparison Rule</p>
+                    <p class="compare-mini-value mt-2">Difference = ((Run B - Run A) / Run A) x 100</p>
+                    <p class="home-widget-note">Lower runtime, energy, and carbon are treated as better. Health Score is shown as point change.</p>
+                </div>
+            </section>
+
+            <section class="compare-panel">
+                <div class="home-section-heading p-0">
+                    <div>
+                        <p class="home-eyebrow">Select Runs</p>
+                        <h2 class="home-section-title">Run A and Run B</h2>
+                    </div>
+                </div>
+                <form method="get" action="/compare" class="mt-4">
+                    <div class="compare-selector-grid">
+                        <div class="compare-selector-card">
+                            <label for="compareRunA" class="run-label">Run A</label>
+                            <input id="compareRunA" name="run_a" class="compare-input" list="compareRunOptions" value="{{ selected_run_a }}" placeholder="Search or select Run A" autocomplete="off">
+                        </div>
+                        <div class="compare-selector-card">
+                            <label for="compareRunB" class="run-label">Run B</label>
+                            <input id="compareRunB" name="run_b" class="compare-input" list="compareRunOptions" value="{{ selected_run_b }}" placeholder="Search or select Run B" autocomplete="off">
+                        </div>
+                    </div>
+                    <datalist id="compareRunOptions">
+                        {% for option in run_options %}
+                        <option value="{{ option.run_id }}" label="{{ option.label }}"></option>
+                        {% endfor %}
+                    </datalist>
+                    <div class="compare-actions">
+                        <button type="submit" class="compare-button"><i data-lucide="git-compare" class="w-4 h-4"></i>Compare Runs</button>
+                        <a href="/compare" class="home-view-all"><i data-lucide="rotate-ccw" class="w-4 h-4"></i>Reset</a>
+                    </div>
+                </form>
+                {% if compare_error %}
+                <div class="compare-alert mt-4">{{ compare_error }}</div>
+                {% elif not selected_run_a and not selected_run_b %}
+                <div class="compare-empty mt-4">
+                    <p class="font-black text-[var(--home-text)]">Select two pipeline runs to compare their runtime, energy, carbon, resources, and health.</p>
+                </div>
+                {% elif not comparison_ready %}
+                <div class="compare-empty mt-4">
+                    <p class="font-black text-[var(--home-text)]">Select another run to start the comparison.</p>
+                </div>
+                {% endif %}
+            </section>
+
+            {% if comparison_ready %}
+            <section class="compare-run-grid">
+                {% for side, run in [('Run A', run_a), ('Run B', run_b)] %}
+                <div class="compare-run-card">
+                    <div class="compare-run-head">
+                        <div>
+                            <p class="home-eyebrow">{{ side }}</p>
+                            <h2 class="compare-run-title">Run #{{ run.build_number if run.build_number != 'Not available' else run.run_id }}</h2>
+                            <p class="home-widget-note" title="{{ run.run_id }}">{{ run.run_id }}</p>
+                        </div>
+                        <span class="runs-status {% if run.status == 'success' %}success{% elif run.status in ['aborted', 'cancelled', 'canceled'] %}cancelled{% else %}failed{% endif %}">{{ run.status }}</span>
+                    </div>
+                    <div class="compare-run-meta">
+                        <div class="compare-mini"><p class="run-label">Pipeline</p><p class="compare-mini-value">{{ run.pipeline }}</p></div>
+                        <div class="compare-mini"><p class="run-label">Strategy</p><p class="compare-mini-value">{{ run.strategy }}</p></div>
+                        <div class="compare-mini"><p class="run-label">Optimizer</p><p class="compare-mini-value">{{ run.optimizer_status }}</p></div>
+                    </div>
+                </div>
+                {% endfor %}
+            </section>
+
+            <section class="compare-panel">
+                <div class="home-section-heading p-0">
+                    <div>
+                        <p class="home-eyebrow">Main Comparison</p>
+                        <h2 class="home-section-title">Which run performed better?</h2>
+                    </div>
+                </div>
+                <div class="compare-main-grid">
+                    {% for metric in main_metrics %}
+                    <div class="compare-vs-card">
+                        <div class="compare-side {{ metric.a_class }}">
+                            <p class="compare-side-label">Run A</p>
+                            <p class="compare-side-value">{{ metric.a_display }}</p>
+                            <span class="compare-result"><i data-lucide="{{ metric.a_icon }}" class="w-4 h-4"></i>{{ metric.a_result }}</span>
+                        </div>
+                        <div class="compare-center">
+                            <span class="compare-metric-icon"><i data-lucide="{{ metric.icon }}" class="w-4 h-4"></i></span>
+                            <p class="compare-center-label">{{ metric.label }}</p>
+                        </div>
+                        <div class="compare-side {{ metric.b_class }}">
+                            <p class="compare-side-label">Run B</p>
+                            <p class="compare-side-value">{{ metric.b_display }}</p>
+                            <span class="compare-result"><i data-lucide="{{ metric.b_icon }}" class="w-4 h-4"></i>{{ metric.b_result }}</span>
+                        </div>
+                    </div>
+                    {% endfor %}
+                </div>
+            </section>
+            {% endif %}
         </main>
         {% elif page == 'run' %}
         <main class="space-y-5">
@@ -4050,6 +4206,163 @@ def build_home_context(df, run_summary, data_source):
     }
 
 
+def _winner_compare_metric(label, icon, run_a_value, run_b_value, formatter, lower_is_better=True):
+    a_numeric = optional_numeric(run_a_value)
+    b_numeric = optional_numeric(run_b_value)
+    metric = {
+        "label": label,
+        "icon": icon,
+        "a_display": formatter(a_numeric) if a_numeric is not None else "N/A",
+        "b_display": formatter(b_numeric) if b_numeric is not None else "N/A",
+        "a_class": "neutral",
+        "b_class": "neutral",
+        "a_icon": "circle",
+        "b_icon": "circle",
+        "a_result": "N/A",
+        "b_result": "N/A",
+    }
+    if a_numeric is None or b_numeric is None:
+        return metric
+
+    if a_numeric == b_numeric:
+        metric.update({
+            "a_class": "equal",
+            "b_class": "equal",
+            "a_icon": "circle-alert",
+            "b_icon": "circle-alert",
+            "a_result": "Equal",
+            "b_result": "Equal",
+        })
+        return metric
+
+    a_is_better = a_numeric < b_numeric if lower_is_better else a_numeric > b_numeric
+    better_value = a_numeric if a_is_better else b_numeric
+    worse_value = b_numeric if a_is_better else a_numeric
+    better_key = "a" if a_is_better else "b"
+    worse_key = "b" if a_is_better else "a"
+    metric[f"{better_key}_class"] = "better"
+    metric[f"{worse_key}_class"] = "worse"
+    metric[f"{better_key}_icon"] = "circle-check"
+    metric[f"{worse_key}_icon"] = "circle-alert"
+
+    if lower_is_better:
+        if worse_value == 0:
+            result = "N/A"
+        else:
+            improvement = ((worse_value - better_value) / worse_value) * 100.0
+            suffix = "faster" if label == "Total Runtime" else "lower"
+            result = f"{improvement:.1f}% {suffix}"
+    else:
+        result = f"{abs(better_value - worse_value):.0f} points higher"
+
+    metric[f"{better_key}_result"] = result
+    metric[f"{worse_key}_result"] = ""
+    return metric
+
+
+def _compare_run_details(df, run_id, release_builds, enriched_run):
+    run_rows = df[df["run_id"] == run_id].copy()
+    analytics_rows = workload_analytics_dataframe(run_rows)
+    source_rows = analytics_rows if not analytics_rows.empty else run_rows
+    uses_jenkins_timing = bool(source_rows["jenkins_stage_duration_captured"].any()) if "jenkins_stage_duration_captured" in source_rows else False
+    duration_column = "jenkins_stage_duration_seconds" if uses_jenkins_timing else "workload_duration_seconds"
+    total_duration = optional_numeric(source_rows[duration_column].sum()) if duration_column in source_rows else None
+
+    pipeline_name = format_optional_text(source_rows["pipeline_name"].dropna().astype(str).iloc[0]) if "pipeline_name" in source_rows and not source_rows["pipeline_name"].dropna().empty else "Not available"
+    build_number = extract_build_number_from_run_id(run_id)
+    release_data = format_release_build_data(find_release_build_for_run(run_id, release_builds))
+    deploy_data = format_deploy_component_data(load_deploy_data(pipeline_name, build_number))
+    strategies = []
+    if deploy_data:
+        strategies.append(deploy_data.get("strategy_display"))
+    if "strategy" in source_rows:
+        strategies.extend(source_rows["strategy"].dropna().astype(str).tolist())
+    strategy_display = next((format_optional_text(item).replace("_", " ").title() for item in strategies if format_optional_text(item).lower() not in {"not available", "missing"}), "Not available")
+
+    optimizer_status = "Not available"
+    if release_data:
+        optimizer_status = release_data.get("optimizer_status_display", "Not available")
+    elif "optimizer_status" in source_rows:
+        optimizer_status = format_optional_text(source_rows["optimizer_status"].dropna().astype(str).iloc[0]).replace("_", " ").title() if not source_rows["optimizer_status"].dropna().empty else "Not available"
+
+    start_time, end_time = _run_times(run_rows)
+    selected_run_status = "failed" if run_rows["status"].astype(str).str.lower().eq("failed").any() else str(enriched_run.get("status", "success"))
+    return {
+        "run_id": run_id,
+        "build_number": build_number or "Not available",
+        "pipeline": pipeline_name,
+        "status": selected_run_status,
+        "strategy": strategy_display,
+        "optimizer_status": optimizer_status,
+        "timestamp": end_time if end_time != "Not captured" else start_time,
+        "start": start_time,
+        "end": end_time,
+        "health_score": optional_numeric(enriched_run.get("health_score")),
+        "metrics": {
+            "duration": total_duration,
+            "energy": optional_numeric(source_rows["total_energy_kwh"].sum()) if "total_energy_kwh" in source_rows else None,
+            "carbon": optional_numeric(source_rows["total_carbon_kg"].sum()) if "total_carbon_kg" in source_rows else None,
+        },
+    }
+
+
+def build_compare_context(df, run_summary, data_source, run_a_id=None, run_b_id=None):
+    enriched_runs = enrich_run_summary_for_pages(df, run_summary)
+    enriched_lookup = {str(run.get("run_id", "")): run for run in enriched_runs.to_dict(orient="records")}
+    run_options = []
+    for run in enriched_lookup.values():
+        run_id = str(run.get("run_id", ""))
+        run_options.append(
+            {
+                "run_id": run_id,
+                "label": f"Run #{extract_build_number_from_run_id(run_id) or run_id} | Pipeline: {run.get('pipeline_name_display') or 'Not available'} | Status: {run.get('status')} | Time: {run.get('end_time_display') or run.get('latest_time') or 'Not captured'}",
+                "status": run.get("status"),
+                "pipeline": run.get("pipeline_name_display"),
+            }
+        )
+
+    available_ids = {item["run_id"] for item in run_options}
+    selected_a = str(run_a_id or "")
+    selected_b = str(run_b_id or "")
+    run_a = run_b = None
+    comparison_ready = False
+    compare_error = ""
+    if selected_a and selected_a not in available_ids:
+        compare_error = "Run A was not found in the available Monitor history."
+        selected_a = ""
+    if selected_b and selected_b not in available_ids:
+        compare_error = "Run B was not found in the available Monitor history."
+        selected_b = ""
+    if selected_a and selected_b and selected_a == selected_b:
+        compare_error = "Choose two different pipeline runs to compare."
+    elif selected_a and selected_b:
+        release_builds = load_release_builds()
+        run_a = _compare_run_details(df, selected_a, release_builds, enriched_lookup.get(selected_a, {}))
+        run_b = _compare_run_details(df, selected_b, release_builds, enriched_lookup.get(selected_b, {}))
+        comparison_ready = True
+
+    main_metrics = []
+    if comparison_ready:
+        main_metrics = [
+            _winner_compare_metric("Total Runtime", "timer", run_a["metrics"]["duration"], run_b["metrics"]["duration"], format_seconds),
+            _winner_compare_metric("Total Energy", "zap", run_a["metrics"]["energy"], run_b["metrics"]["energy"], format_kwh),
+            _winner_compare_metric("Total Carbon", "leaf", run_a["metrics"]["carbon"], run_b["metrics"]["carbon"], format_gco2_from_kg),
+            _winner_compare_metric("Health Score", "heart-pulse", run_a["health_score"], run_b["health_score"], lambda value: f"{int(round(value))}/100", lower_is_better=False),
+        ]
+
+    return {
+        "data_source": data_source,
+        "run_options": run_options,
+        "selected_run_a": selected_a,
+        "selected_run_b": selected_b,
+        "run_a": run_a,
+        "run_b": run_b,
+        "comparison_ready": comparison_ready,
+        "compare_error": compare_error,
+        "main_metrics": main_metrics,
+    }
+
+
 def _data_or_empty():
     df, data_source = load_metrics()
     if df.empty:
@@ -4076,6 +4389,24 @@ def runs_page():
         return _empty_data_response()
     runs = enrich_run_summary_for_pages(df, run_summary).to_dict(orient="records")
     return render_template_string(APP_HTML, page="runs", data_source=data_source, runs=runs)
+
+
+@app.route("/compare")
+def compare_page():
+    df, run_summary, data_source = _data_or_empty()
+    if df is None:
+        return _empty_data_response()
+    return render_template_string(
+        APP_HTML,
+        page="compare",
+        **build_compare_context(
+            df,
+            run_summary,
+            data_source,
+            run_a_id=request.args.get("run_a"),
+            run_b_id=request.args.get("run_b"),
+        ),
+    )
 
 
 @app.route("/run/<run_id>")
