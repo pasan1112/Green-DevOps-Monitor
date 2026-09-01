@@ -64,5 +64,88 @@ def test_compare_page_renders_two_selected_runs(monkeypatch):
     assert "Green DevOps <span>Compare</span>" in body
     assert "Run A" in body
     assert "Run B" in body
-    assert "20.0% lower" in body
-    assert "Run B used 25.0% less energy than Run A." in body
+    assert body.count('<div class="compare-vs-card">') == 8
+    expected_order = [
+        "Release Runtime",
+        "Deploy Runtime",
+        "Total Runtime",
+        "Average CPU",
+        "Average Memory",
+        "Total Energy",
+        "Total Carbon",
+        "Health Score",
+    ]
+    positions = [body.index(label) for label in expected_order]
+    assert positions == sorted(positions)
+    assert "Difference = ((Run B - Run A) / Run A) x 100" not in body
+    assert "Each metric highlights the better-performing run." in body
+    assert "Peak CPU" not in body
+    assert "Peak Memory" not in body
+    assert "Total Runtime" in body
+    assert "Total Energy" in body
+    assert "Total Carbon" in body
+    assert "Health Score" in body
+    assert "Release Runtime" in body
+    assert "Deploy Runtime" in body
+    assert "Average CPU" in body
+    assert "Average Memory" in body
+    assert "20.0% faster" in body
+    assert "25.0% lower" in body
+
+
+def test_compare_page_marks_run_a_as_better_when_left_side_wins(monkeypatch):
+    monkeypatch.setattr(dashboard, "load_metrics", lambda: (_compare_metrics(), "test data"))
+    monkeypatch.setattr(dashboard, "load_release_builds", lambda: [])
+    monkeypatch.setattr(dashboard, "load_deploy_data", lambda *args, **kwargs: None)
+
+    client = dashboard.app.test_client()
+    response = client.get("/compare?run_a=compare-pipeline-101&run_b=compare-pipeline-100")
+
+    assert response.status_code == 200
+    body = response.get_data(as_text=True)
+    assert "compare-side better" in body
+    assert "20.0% faster" in body
+    assert "25.0% lower" in body
+
+
+def test_compare_winner_metric_handles_equal_values():
+    metric = dashboard._winner_compare_metric("Total Runtime", "timer", 50.0, 50.0, dashboard.format_seconds)
+
+    assert metric["a_class"] == "equal"
+    assert metric["b_class"] == "equal"
+    assert metric["a_result"] == "Equal"
+    assert metric["b_result"] == "Equal"
+
+
+def test_compare_winner_metric_handles_missing_values():
+    metric = dashboard._winner_compare_metric("Total Energy", "zap", None, 0.00006, dashboard.format_kwh)
+
+    assert metric["a_display"] == "N/A"
+    assert metric["b_display"] == "0.00006000 kWh"
+    assert metric["a_result"] == "N/A"
+    assert metric["b_result"] == "N/A"
+
+
+def test_compare_winner_metric_handles_zero_values_without_invalid_math():
+    equal_zero = dashboard._winner_compare_metric("Total Carbon", "leaf", 0.0, 0.0, dashboard.format_gco2_from_kg)
+    zero_wins = dashboard._winner_compare_metric("Total Energy", "zap", 0.0, 0.00006, dashboard.format_kwh)
+
+    assert equal_zero["a_result"] == "Equal"
+    assert equal_zero["b_result"] == "Equal"
+    assert zero_wins["a_result"] == "100.0% lower"
+    assert zero_wins["b_result"] == ""
+
+
+def test_compare_winner_metric_treats_health_as_higher_is_better():
+    metric = dashboard._winner_compare_metric(
+        "Health Score",
+        "heart-pulse",
+        70.0,
+        94.0,
+        lambda value: f"{int(round(value))}/100",
+        lower_is_better=False,
+    )
+
+    assert metric["a_class"] == "worse"
+    assert metric["b_class"] == "better"
+    assert metric["b_result"] == "24 points higher"

@@ -3280,8 +3280,8 @@ APP_HTML = """
                 </div>
                 <div class="compare-hero-card">
                     <p class="run-label">Comparison Rule</p>
-                    <p class="compare-mini-value mt-2">Difference = ((Run B - Run A) / Run A) x 100</p>
-                    <p class="home-widget-note">Lower runtime, energy, and carbon are treated as better. Health Score is shown as point change.</p>
+                    <p class="compare-mini-value mt-2">Each metric highlights the better-performing run.</p>
+                    <p class="home-widget-note">Lower is better for runtime, resource usage, energy, and carbon; higher is better for health score.</p>
                 </div>
             </section>
 
@@ -3339,7 +3339,6 @@ APP_HTML = """
                         <span class="runs-status {% if run.status == 'success' %}success{% elif run.status in ['aborted', 'cancelled', 'canceled'] %}cancelled{% else %}failed{% endif %}">{{ run.status }}</span>
                     </div>
                     <div class="compare-run-meta">
-                        <div class="compare-mini"><p class="run-label">Pipeline</p><p class="compare-mini-value">{{ run.pipeline }}</p></div>
                         <div class="compare-mini"><p class="run-label">Strategy</p><p class="compare-mini-value">{{ run.strategy }}</p></div>
                         <div class="compare-mini"><p class="run-label">Optimizer</p><p class="compare-mini-value">{{ run.optimizer_status }}</p></div>
                     </div>
@@ -4250,7 +4249,7 @@ def _winner_compare_metric(label, icon, run_a_value, run_b_value, formatter, low
             result = "N/A"
         else:
             improvement = ((worse_value - better_value) / worse_value) * 100.0
-            suffix = "faster" if label == "Total Runtime" else "lower"
+            suffix = "faster" if "Runtime" in label else "lower"
             result = f"{improvement:.1f}% {suffix}"
     else:
         result = f"{abs(better_value - worse_value):.0f} points higher"
@@ -4267,6 +4266,10 @@ def _compare_run_details(df, run_id, release_builds, enriched_run):
     uses_jenkins_timing = bool(source_rows["jenkins_stage_duration_captured"].any()) if "jenkins_stage_duration_captured" in source_rows else False
     duration_column = "jenkins_stage_duration_seconds" if uses_jenkins_timing else "workload_duration_seconds"
     total_duration = optional_numeric(source_rows[duration_column].sum()) if duration_column in source_rows else None
+    release_rows = source_rows[source_rows["stage"].astype(str).str.lower() == "release"] if "stage" in source_rows else pd.DataFrame()
+    deploy_rows = source_rows[source_rows["stage"].astype(str).str.lower() == "deploy"] if "stage" in source_rows else pd.DataFrame()
+    release_duration = optional_numeric(release_rows[duration_column].sum()) if duration_column in release_rows and not release_rows.empty else None
+    deploy_duration = optional_numeric(deploy_rows[duration_column].sum()) if duration_column in deploy_rows and not deploy_rows.empty else None
 
     pipeline_name = format_optional_text(source_rows["pipeline_name"].dropna().astype(str).iloc[0]) if "pipeline_name" in source_rows and not source_rows["pipeline_name"].dropna().empty else "Not available"
     build_number = extract_build_number_from_run_id(run_id)
@@ -4299,7 +4302,11 @@ def _compare_run_details(df, run_id, release_builds, enriched_run):
         "end": end_time,
         "health_score": optional_numeric(enriched_run.get("health_score")),
         "metrics": {
+            "release_duration": release_duration,
+            "deploy_duration": deploy_duration,
             "duration": total_duration,
+            "avg_cpu": optional_numeric(source_rows["avg_cpu_percent"].mean()) if "avg_cpu_percent" in source_rows else None,
+            "avg_memory": optional_numeric(source_rows["avg_memory_percent"].mean()) if "avg_memory_percent" in source_rows else None,
             "energy": optional_numeric(source_rows["total_energy_kwh"].sum()) if "total_energy_kwh" in source_rows else None,
             "carbon": optional_numeric(source_rows["total_carbon_kg"].sum()) if "total_carbon_kg" in source_rows else None,
         },
@@ -4344,7 +4351,11 @@ def build_compare_context(df, run_summary, data_source, run_a_id=None, run_b_id=
     main_metrics = []
     if comparison_ready:
         main_metrics = [
+            _winner_compare_metric("Release Runtime", "package-check", run_a["metrics"]["release_duration"], run_b["metrics"]["release_duration"], format_seconds),
+            _winner_compare_metric("Deploy Runtime", "rocket", run_a["metrics"]["deploy_duration"], run_b["metrics"]["deploy_duration"], format_seconds),
             _winner_compare_metric("Total Runtime", "timer", run_a["metrics"]["duration"], run_b["metrics"]["duration"], format_seconds),
+            _winner_compare_metric("Average CPU", "cpu", run_a["metrics"]["avg_cpu"], run_b["metrics"]["avg_cpu"], format_percent),
+            _winner_compare_metric("Average Memory", "memory-stick", run_a["metrics"]["avg_memory"], run_b["metrics"]["avg_memory"], format_percent),
             _winner_compare_metric("Total Energy", "zap", run_a["metrics"]["energy"], run_b["metrics"]["energy"], format_kwh),
             _winner_compare_metric("Total Carbon", "leaf", run_a["metrics"]["carbon"], run_b["metrics"]["carbon"], format_gco2_from_kg),
             _winner_compare_metric("Health Score", "heart-pulse", run_a["health_score"], run_b["health_score"], lambda value: f"{int(round(value))}/100", lower_is_better=False),
