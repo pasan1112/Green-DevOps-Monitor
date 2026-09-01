@@ -3014,7 +3014,7 @@ APP_HTML = """
         .release-step { border: 1px solid var(--home-border); background: var(--home-surface-muted); border-radius: .95rem; padding: .72rem; }
         .release-alert { border: 1px solid rgba(245, 158, 11, .28); background: rgba(245, 158, 11, .11); color: var(--home-warning); border-radius: 1rem; padding: .85rem; font-size: .86rem; font-weight: 800; }
         .release-intel-head { border: 1px solid var(--home-border-strong); background: linear-gradient(145deg, rgba(var(--home-accent-carbon-rgb), .13), rgba(var(--home-accent-energy-rgb), .10), var(--home-surface)); border-radius: 1.25rem; padding: 1rem; }
-        .release-intel-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: .8rem; }
+        .release-intel-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .8rem; }
         .release-intel-card { border: 1px solid var(--home-border); background: linear-gradient(145deg, var(--home-surface-strong), var(--home-surface)); border-radius: 1.15rem; padding: .9rem; min-height: 210px; box-shadow: var(--home-shadow-soft); }
         .release-anomaly-item { border: 1px solid var(--home-border); background: var(--home-surface-muted); border-radius: .95rem; padding: .75rem; }
         .release-muted { color: var(--home-text-muted); }
@@ -3623,17 +3623,6 @@ APP_HTML = """
                             {% else %}
                             <p class="release-text text-sm mt-4">Awaiting integrated Monitor data.</p>
                             {% endif %}
-                        </div>
-                        <div class="release-intel-card">
-                            <div class="flex items-center justify-between gap-3"><div><p class="run-label">Baseline Context</p><p class="release-text text-sm font-bold mt-1">Historical population used</p></div><span class="release-measure-icon"><i data-lucide="database" class="w-4 h-4"></i></span></div>
-                            <p class="text-2xl font-black mt-4 text-[var(--home-text)]">{{ stage_detail.baseline_context.label }}</p>
-                            <div class="grid grid-cols-2 gap-2 mt-4 text-xs">
-                                <div class="release-mini"><p class="run-label">Scope</p><p class="release-mini-value">{{ stage_detail.baseline_context.context_scope }}</p></div>
-                                <div class="release-mini"><p class="run-label">Historical Runs</p><p class="release-mini-value">{{ stage_detail.baseline_context.historical_samples_display }}</p></div>
-                                <div class="release-mini"><p class="run-label">Strategy-specific</p><p class="release-mini-value">{{ 'Yes' if stage_detail.baseline_context.strategy_specific else 'No' }}</p></div>
-                                <div class="release-mini"><p class="run-label">Stage</p><p class="release-mini-value">Release</p></div>
-                            </div>
-                            {% if stage_detail.baseline_context.fallback_reason %}<p class="text-xs mt-3 text-[var(--home-warning)]">{{ stage_detail.baseline_context.fallback_reason }}</p>{% endif %}
                         </div>
                     </div>
                 </section>
